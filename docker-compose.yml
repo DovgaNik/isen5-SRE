@@ -1,0 +1,171 @@
+services:
+  # ============================================================================
+  # CloudStore Microservices (TypeScript / Node.js 24)
+  # ============================================================================
+  service-a:
+    build:
+      context: ./services/service-a-auth
+      dockerfile: Dockerfile
+    container_name: cloudstore-service-a
+    ports:
+      - "8081:8081"
+    environment:
+      - PORT=8081
+      - NODE_ENV=production
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+    networks:
+      - cloudstore-net
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8081/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  service-b:
+    build:
+      context: ./services/service-b-catalog
+      dockerfile: Dockerfile
+    container_name: cloudstore-service-b
+    ports:
+      - "8082:8082"
+    environment:
+      - PORT=8082
+      - NODE_ENV=production
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+    networks:
+      - cloudstore-net
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8082/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  service-c:
+    build:
+      context: ./services/service-c-order
+      dockerfile: Dockerfile
+    container_name: cloudstore-service-c
+    ports:
+      - "8083:8083"
+    environment:
+      - PORT=8083
+      - NODE_ENV=production
+      - AUTH_SERVICE_URL=http://service-a:8081
+      - CATALOG_SERVICE_URL=http://service-b:8082
+      - PAYMENT_SERVICE_URL=http://service-d:8084
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+    depends_on:
+      - service-a
+      - service-b
+      - service-d
+    networks:
+      - cloudstore-net
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8083/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  service-d:
+    build:
+      context: ./services/service-d-payment
+      dockerfile: Dockerfile
+    container_name: cloudstore-service-d
+    ports:
+      - "8084:8084"
+    environment:
+      - PORT=8084
+      - NODE_ENV=production
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+    networks:
+      - cloudstore-net
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8084/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  # ============================================================================
+  # Mandatory Open-Source Observability Stack
+  # ============================================================================
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.108.0
+    container_name: cloudstore-otel-collector
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    volumes:
+      - ./observability/otel-collector/otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro
+    ports:
+      - "4317:4317" # OTLP gRPC
+      - "4318:4318" # OTLP HTTP
+      - "8889:8889" # Prometheus metrics exporter
+    depends_on:
+      - jaeger
+    networks:
+      - cloudstore-net
+
+  prometheus:
+    image: prom/prometheus:v2.54.0
+    container_name: cloudstore-prometheus
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    networks:
+      - cloudstore-net
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.58
+    container_name: cloudstore-jaeger
+    ports:
+      - "16686:16686" # Web UI
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    networks:
+      - cloudstore-net
+
+  loki:
+    image: grafana/loki:3.1.0
+    container_name: cloudstore-loki
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./observability/loki/loki-config.yaml:/etc/loki/local-config.yaml:ro
+    command: -config.file=/etc/loki/local-config.yaml
+    networks:
+      - cloudstore-net
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    container_name: cloudstore-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./observability/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./observability/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+    depends_on:
+      - prometheus
+      - jaeger
+      - loki
+    networks:
+      - cloudstore-net
+
+  # ============================================================================
+  # CloudStore Traffic & Load Generator Dashboard (Port 8080)
+  # ============================================================================
+  load-generator:
+    build:
+      context: ./load-generator
+      dockerfile: Dockerfile
+    container_name: cloudstore-load-generator
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+    networks:
+      - cloudstore-net
+
+networks:
+  cloudstore-net:
+    driver: bridge

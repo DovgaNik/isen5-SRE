@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CloudStore Traffic &amp; Failure Scenario Generator</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header class="header">
+        <div class="logo-title">
+          <span class="icon">🛒</span>
+          <div>
+            <h1>CloudStore Load Generator</h1>
+            <p class="subtitle">Synthetic traffic, checkout sagas &amp; failure scenario injector for ISEN5 SRE observability</p>
+          </div>
+        </div>
+        <div class="header-links">
+          <a href="http://localhost:3000" target="_blank" class="nav-btn grafana-btn">📊 Grafana (3000)</a>
+          <a href="http://localhost:16686" target="_blank" class="nav-btn jaeger-btn">🔍 Jaeger (16686)</a>
+          <a href="http://localhost:9090" target="_blank" class="nav-btn prom-btn">🔥 Prometheus (9090)</a>
+        </div>
+      </header>
+
+      <!-- KPI Telemetry Cards -->
+      <section class="kpi-section">
+        <div class="section-title-row">
+          <h2>📊 Real-Time Client Telemetry</h2>
+          <span class="live-pill"><span class="pulse-dot-small"></span>LIVE MONITORING</span>
+        </div>
+        <div class="kpi-grid">
+          <div class="kpi-card">
+            <div class="kpi-top">
+              <span class="kpi-label">TOTAL REQUESTS</span>
+              <span class="kpi-icon">🌐</span>
+            </div>
+            <div class="kpi-value" id="statTotal">0</div>
+            <div class="kpi-caption">Synthetic load fired</div>
+          </div>
+
+          <div class="kpi-card success">
+            <div class="kpi-top">
+              <span class="kpi-label">2xx SUCCESS</span>
+              <span class="kpi-badge badge-success" id="badge2xx">0%</span>
+            </div>
+            <div class="kpi-value text-success" id="stat2xx">0</div>
+            <div class="kpi-caption">Completed checkouts &amp; queries</div>
+          </div>
+
+          <div class="kpi-card warning">
+            <div class="kpi-top">
+              <span class="kpi-label">4xx CLIENT ERRORS</span>
+              <span class="kpi-badge badge-warning" id="badge4xx">0%</span>
+            </div>
+            <div class="kpi-value text-warning" id="stat4xx">0</div>
+            <div class="kpi-caption">Stock conflicts &amp; bad requests</div>
+          </div>
+
+          <div class="kpi-card error">
+            <div class="kpi-top">
+              <span class="kpi-label">5xx / 501 SKELETON</span>
+              <span class="kpi-badge badge-error" id="badge5xx">0%</span>
+            </div>
+            <div class="kpi-value text-error" id="stat5xx">0</div>
+            <div class="kpi-caption">Unimplemented routes</div>
+          </div>
+
+          <div class="kpi-card latency">
+            <div class="kpi-top">
+              <span class="kpi-label">AVG ROUNDTRIP</span>
+              <span class="kpi-badge badge-latency" id="badgeLatency">Optimal</span>
+            </div>
+            <div class="kpi-value text-latency" id="statLatency">0 ms</div>
+            <div class="kpi-caption">Client-observed roundtrip time</div>
+          </div>
+
+          <div class="kpi-card rps">
+            <div class="kpi-top">
+              <span class="kpi-label">THROUGHPUT</span>
+              <span class="live-rate-icon">⚡</span>
+            </div>
+            <div class="kpi-value text-rps" id="statRps">0 req/s</div>
+            <div class="kpi-caption">Sliding 2-second average</div>
+          </div>
+        </div>
+      </section>
+
+      <main class="grid-container">
+        <!-- Control Panel Card -->
+        <section class="card control-card">
+          <div class="card-header">
+            <h2>⚙️ Workload Scenario &amp; Pacing</h2>
+          </div>
+
+          <!-- Scenario Selection -->
+          <div class="form-group">
+            <label class="input-label" for="scenarioSelect">Select Workload Scenario</label>
+            <div class="select-wrapper">
+              <select id="scenarioSelect" class="styled-select"></select>
+            </div>
+            <p id="scenarioDesc" class="scenario-description"></p>
+          </div>
+
+          <!-- Preset Pills -->
+          <div class="preset-group">
+            <span class="preset-label">Quick Presets:</span>
+            <div class="preset-pills">
+              <button class="preset-pill active" data-scenario="checkout-saga">Full Checkout Saga</button>
+              <button class="preset-pill" data-scenario="nominal-browsing">Catalog Browsing</button>
+              <button class="preset-pill" data-scenario="peak-traffic">Peak Shopping Surge</button>
+              <button class="preset-pill" data-scenario="out-of-stock">Out-of-Stock (409)</button>
+              <button class="preset-pill" data-scenario="custom-single">Custom Endpoint</button>
+            </div>
+          </div>
+
+          <hr class="divider" />
+
+          <!-- Traffic Generator Controls -->
+          <div class="traffic-control-panel">
+            <div class="toggle-control-box">
+              <label class="modern-switch">
+                <input type="checkbox" id="trafficToggle" />
+                <span class="switch-track"></span>
+              </label>
+              <div class="toggle-text-block">
+                <div class="status-indicator-row">
+                  <span id="pulseDot" class="status-indicator-dot paused"></span>
+                  <span id="toggleStatus" class="toggle-headline">Traffic Generator: <strong>PAUSED</strong></span>
+                </div>
+                <span class="toggle-subtext">Automated client request loop</span>
+              </div>
+            </div>
+
+            <div class="button-action-row">
+              <button id="sendSingleBtn" class="btn btn-primary">
+                <span class="btn-icon">⚡</span> Fire Single Request
+              </button>
+              <button id="resetStatsBtn" class="btn btn-secondary">
+                <span class="btn-icon">🔄</span> Reset Counters
+              </button>
+            </div>
+          </div>
+
+          <!-- Pacing Slider -->
+          <div class="form-group slider-box">
+            <div class="slider-header-row">
+              <label class="input-label" for="intervalSlider">Pacing Interval</label>
+              <span id="intervalBadge" class="pacing-badge">500 ms (~2.0 req/s)</span>
+            </div>
+            <input type="range" id="intervalSlider" min="50" max="2000" step="50" value="500" class="styled-slider" />
+            <div class="slider-ticks">
+              <span>50ms (Fast)</span>
+              <span>250ms</span>
+              <span>500ms</span>
+              <span>1000ms</span>
+              <span>2000ms (Slow)</span>
+            </div>
+          </div>
+
+          <!-- Tracing Option -->
+          <div class="form-group">
+            <label class="custom-checkbox">
+              <input type="checkbox" id="traceContextToggle" checked />
+              <span class="checkbox-mark"></span>
+              <span class="checkbox-text">Inject W3C <code>traceparent</code> header (initiates root span for Jaeger waterfall)</span>
+            </label>
+          </div>
+
+          <!-- Target Endpoints Accordion -->
+          <details class="endpoint-accordion">
+            <summary class="accordion-summary">
+              <span>🎯 Target Microservices Configuration</span>
+              <span class="chevron">▾</span>
+            </summary>
+            <div class="endpoint-inputs-grid">
+              <div class="endpoint-field">
+                <span class="service-tag tag-a">SVC A :8081</span>
+                <input type="text" id="endpointA" value="http://localhost:8081" />
+              </div>
+              <div class="endpoint-field">
+                <span class="service-tag tag-b">SVC B :8082</span>
+                <input type="text" id="endpointB" value="http://localhost:8082" />
+              </div>
+              <div class="endpoint-field">
+                <span class="service-tag tag-c">SVC C :8083</span>
+                <input type="text" id="endpointC" value="http://localhost:8083" />
+              </div>
+              <div class="endpoint-field">
+                <span class="service-tag tag-d">SVC D :8084</span>
+                <input type="text" id="endpointD" value="http://localhost:8084" />
+              </div>
+            </div>
+          </details>
+        </section>
+
+        <!-- Response Stream Card -->
+        <section class="card stream-card">
+          <div class="stream-header">
+            <div class="stream-title-group">
+              <h2>📡 Live Response Stream</h2>
+              <span class="stream-counter" id="streamCounter">0 logged</span>
+            </div>
+            <div class="stream-toolbar">
+              <div class="filter-pills" id="filterPills">
+                <button class="filter-pill active" data-filter="all">All</button>
+                <button class="filter-pill" data-filter="2xx">2xx</button>
+                <button class="filter-pill" data-filter="4xx">4xx</button>
+                <button class="filter-pill" data-filter="5xx">5xx</button>
+              </div>
+              <button id="clearLogsBtn" class="btn-clear" title="Clear stream">Clear</button>
+            </div>
+          </div>
+
+          <div id="logContainer" class="stream-container">
+            <div class="empty-state">
+              <div class="empty-icon">🚀</div>
+              <div class="empty-title">Ready to Generate Traffic</div>
+              <div class="empty-sub">Enable <strong>Traffic Generator</strong> above or click <strong>Fire Single Request</strong> to start inspecting transactions in real time.</div>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
