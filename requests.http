@@ -1,0 +1,17 @@
+### Service B health
+GET localhost:8082/healthz
+
+### Service D health
+GET localhost:8084/healthz
+
+### Service D payment processing
+POST localhost:8084/payments/charge
+Content-Type: application/json
+
+{
+
+  "order_id": "blah blah",
+  "amount_cents": 10000,
+  "idempotency_key": "ssdfsdfsfsdfsfsfsfsfsdd"
+
+}

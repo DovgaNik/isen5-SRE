@@ -1,6 +1,7 @@
 import express, { Request, Response } from 'express';
 import cors from 'cors';
 import { ChargeRequest, ChargeResponse, ErrorResponse } from './types';
+import {randomUUID} from "node:crypto";
 
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 8084;
@@ -8,6 +9,7 @@ const SERVICE_NAME = 'service-d-payment';
 
 app.use(cors());
 app.use(express.json());
+app.set("idempotencyStore", new Map<string, ChargeResponse | ErrorResponse>); // This is needed to avoid using smth like Redis or a DB to store the processed keys
 
 // Operational health probe
 app.get('/healthz', (_req: Request, res: Response) => {
@@ -39,20 +41,38 @@ app.get('/metrics', (_req: Request, res: Response<ErrorResponse>) => {
 /**
  * POST /payments/charge
  * Purpose: Simulates payment authorization with idempotency keys.
- * Skeleton: Returns 501 Not Implemented.
  */
 app.post(
   '/payments/charge',
-  (req: Request<{}, {}, ChargeRequest>, res: Response<ChargeResponse | ErrorResponse>) => {
-    // TODO [Before day 2]:
-    // 1. Verify idempotency key to prevent duplicate charges.
-    // 2. Simulate third-party payment processing latency.
-    // 3. Return 200 OK with transaction_id and status "SUCCESS" or decline with 402/400.
-    res.status(501).json({
-      error: 'Not Implemented',
-      message: 'POST /payments/charge is not implemented in this skeleton. Implement payment gateway processing before day 2.',
-      status_code: 501,
-    });
+    async (req: Request<{}, {}, ChargeRequest>, res: Response<ChargeResponse | ErrorResponse>) => {
+    const delay = Math.floor(Math.random() * 4000);
+    await new Promise(f => setTimeout(f, delay))
+    if (!app.get("idempotencyStore").has(req.body.idempotency_key)) {
+      let response: ChargeResponse;
+      const isPaymentSuccess = Math.random() > 0.1;
+      if (isPaymentSuccess) {
+        response = {
+          transaction_id: randomUUID(),
+          status: "SUCCESS",
+        };
+      } else {
+        const isDeclined = Math.random() > 0.5;
+        response = {
+          transaction_id: randomUUID(),
+          status: isDeclined ? "FAILED_DECLINED" : "FAILED_INSUFFICIENT_FUNDS",
+        };
+      }
+
+      app.get("idempotencyStore").set(req.body.idempotency_key, response);
+      return res.status(200).json(response);
+    } else {
+      return res.status(400).json(
+          {
+            transaction_id: randomUUID(),
+            status: "FAILED_DECLINED",
+          }
+      );
+    }
   }
 );
 
