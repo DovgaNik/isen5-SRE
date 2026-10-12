@@ -22,7 +22,7 @@ POST localhost:8082/inventory/release
 Content-Type: application/json
 
 {
-  "reservation_id": "5440bbfc-3979-4795-8d06-48b2a4f5be87"
+  "reservation_id": "37c726a2-5769-4099-ad42-b1bf760d2425"
 }
 
 ### Service D health

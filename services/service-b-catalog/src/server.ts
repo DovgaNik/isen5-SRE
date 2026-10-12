@@ -106,20 +106,28 @@ app.post(
 app.post(
   '/inventory/release',
   (req: Request<{}, {}, ReleaseRequest>, res: Response<ReleaseResponse | ErrorResponse>) => {
-    const reservations: ReservationItem[] = app.get("reservationStore").get(req.body.reservation_id);
-    reservations.forEach(reservation => {
-      products.forEach(product => {
-        if (product.id == reservation.product_id) {
-          product.stock += reservation.quantity;
-        }
+    try {
+      const reservations: ReservationItem[] = app.get("reservationStore").get(req.body.reservation_id);
+      reservations.forEach(reservation => {
+        products.forEach(product => {
+          if (product.id == reservation.product_id) {
+            product.stock += reservation.quantity;
+          }
+        })
       })
-    })
-    app.get("reservationStore").delete(req.body.reservation_id);
+      app.get("reservationStore").delete(req.body.reservation_id);
 
-    res.status(200).json({
-      "reservation_id": req.body.reservation_id,
-      "status": "released"
-    })
+      res.status(200).json({
+        "reservation_id": req.body.reservation_id,
+        "status": "released"
+      })
+    } catch {
+      res.status(400).json({
+        "error": "Release unsuccessful",
+        "message": "The reservation release was unsuccessful",
+        "status_code": 400
+      });
+    }
   }
 );
 
