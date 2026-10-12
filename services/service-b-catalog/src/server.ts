@@ -8,6 +8,7 @@ import {
   ReleaseResponse,
   ErrorResponse,
 } from './types';
+import {products} from "./products";
 
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 8082;
@@ -46,17 +47,9 @@ app.get('/metrics', (_req: Request, res: Response<ErrorResponse>) => {
 /**
  * GET /products
  * Purpose: Returns product list with stock counts.
- * Skeleton: Returns 501 Not Implemented.
  */
 app.get('/products', (_req: Request, res: Response<Product[] | ErrorResponse>) => {
-  // TODO [Before day 2]:
-  // 1. Fetch available products and inventory levels from catalog repository.
-  // 2. Return product list (200 OK).
-  res.status(501).json({
-    error: 'Not Implemented',
-    message: 'GET /products is not implemented in this skeleton. Implement catalog retrieval before day 2.',
-    status_code: 501,
-  });
+    res.status(200).json(products);
 });
 
 /**

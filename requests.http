@@ -1,6 +1,9 @@
 ### Service B health
 GET localhost:8082/healthz
 
+### Service B Producs
+GET localhost:8082/products
+
 ### Service D health
 GET localhost:8084/healthz
 
