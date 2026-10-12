@@ -82,7 +82,7 @@ app.post(
       items.forEach(item => {
         products.forEach(stockItem => {
           if (stockItem.id == item.product_id) {
-            stockItem.stock = stockItem.stock - item.quantity;
+            stockItem.stock -= item.quantity;
           }
         });
       });
@@ -102,15 +102,20 @@ app.post(
 app.post(
   '/inventory/release',
   (req: Request<{}, {}, ReleaseRequest>, res: Response<ReleaseResponse | ErrorResponse>) => {
-    // TODO [Before day 2]:
-    // 1. Look up reservation by reservation_id.
-    // 2. Release locked items back to stock inventory.
-    // 3. Return 200 OK with confirmation.
-    res.status(501).json({
-      error: 'Not Implemented',
-      message: 'POST /inventory/release is not implemented in this skeleton. Implement stock release before day 2.',
-      status_code: 501,
-    });
+    const reservations: ReservationItem[] = app.get("reservationStore").get(req.body.reservation_id);
+    reservations.forEach(reservation => {
+      products.forEach(product => {
+        if (product.id == reservation.product_id) {
+          product.stock += reservation.quantity;
+        }
+      })
+    })
+    app.get("reservationStore").delete(req.body.reservation_id);
+
+    res.status(200).json({
+      "reservation_id": req.body.reservation_id,
+      "status": "released"
+    })
   }
 );
 

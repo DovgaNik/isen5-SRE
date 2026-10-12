@@ -12,9 +12,17 @@ Content-Type: application/json
   "items": [
     {
       "product_id": "1",
-      "quantity": 5
+      "quantity": 10
     }
   ]
+}
+
+### Service B release
+POST localhost:8082/inventory/release
+Content-Type: application/json
+
+{
+  "reservation_id": "5440bbfc-3979-4795-8d06-48b2a4f5be87"
 }
 
 ### Service D health
