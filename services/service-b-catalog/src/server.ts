@@ -63,9 +63,11 @@ app.post(
     '/inventory/reserve',
     (req: Request<{}, {}, ReserveRequest>, res: Response<ReserveResponse | ErrorResponse>) => {
       const items = req.body.items;
+      let isRequestValid = true;
       items.forEach(item => {
         products.forEach(stockItem => {
           if (stockItem.id == item.product_id && stockItem.stock < item.quantity) {
+            isRequestValid = false;
             return res.status(409).json({
               "reservation_id": randomUUID(),
               "status": "conflict",
@@ -76,21 +78,23 @@ app.post(
       });
 
       // Reservation is approved, we save it and return
-      const reservationId = randomUUID();
-      app.get('reservationStore').set(reservationId, items);
+      if (isRequestValid) {
+        const reservationId = randomUUID();
+        app.get('reservationStore').set(reservationId, items);
 
-      items.forEach(item => {
-        products.forEach(stockItem => {
-          if (stockItem.id == item.product_id) {
-            stockItem.stock -= item.quantity;
-          }
+        items.forEach(item => {
+          products.forEach(stockItem => {
+            if (stockItem.id == item.product_id) {
+              stockItem.stock -= item.quantity;
+            }
+          });
         });
-      });
 
-      return res.status(200).json({
-        "reservation_id": reservationId,
-        "status": "reserved"
-      });
+        return res.status(200).json({
+          "reservation_id": reservationId,
+          "status": "reserved"
+        });
+      }
     }
 );
 
