@@ -1,4 +1,4 @@
-import express, { Request, Response } from 'express';
+import express, {Request, Response} from 'express';
 import cors from 'cors';
 import {
   Product,
@@ -7,8 +7,10 @@ import {
   ReleaseRequest,
   ReleaseResponse,
   ErrorResponse,
+  ReservationItem,
 } from './types';
 import {products} from "./products";
+import {randomUUID} from "node:crypto";
 
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 8082;
@@ -16,6 +18,7 @@ const SERVICE_NAME = 'service-b-catalog';
 
 app.use(cors());
 app.use(express.json());
+app.set("reservationStore", new Map<string, ReservationItem[]>);
 
 // Operational health probe
 app.get('/healthz', (_req: Request, res: Response) => {
@@ -49,27 +52,46 @@ app.get('/metrics', (_req: Request, res: Response<ErrorResponse>) => {
  * Purpose: Returns product list with stock counts.
  */
 app.get('/products', (_req: Request, res: Response<Product[] | ErrorResponse>) => {
-    res.status(200).json(products);
+  res.status(200).json(products);
 });
 
 /**
  * POST /inventory/reserve
  * Purpose: Locks requested items in stock.
- * Skeleton: Returns 501 Not Implemented.
  */
 app.post(
-  '/inventory/reserve',
-  (req: Request<{}, {}, ReserveRequest>, res: Response<ReserveResponse | ErrorResponse>) => {
-    // TODO [Before day 2]:
-    // 1. Validate requested items and stock availability.
-    // 2. Atomically acquire lock / reserve items in stock.
-    // 3. Return 200 OK with reservation_id or 409 Conflict if stock is insufficient.
-    res.status(501).json({
-      error: 'Not Implemented',
-      message: 'POST /inventory/reserve is not implemented in this skeleton. Implement stock reservation before day 2.',
-      status_code: 501,
-    });
-  }
+    '/inventory/reserve',
+    (req: Request<{}, {}, ReserveRequest>, res: Response<ReserveResponse | ErrorResponse>) => {
+      const items = req.body.items;
+      items.forEach(item => {
+        products.forEach(stockItem => {
+          if (stockItem.id == item.product_id && stockItem.stock < item.quantity) {
+            return res.status(409).json({
+              "reservation_id": randomUUID(),
+              "status": "conflict",
+              "message": `The item ${stockItem.name} is out of stock`
+            });
+          }
+        });
+      });
+
+      // Reservation is approved, we save it and return
+      const reservationId = randomUUID();
+      app.get('reservationStore').set(reservationId, items);
+
+      items.forEach(item => {
+        products.forEach(stockItem => {
+          if (stockItem.id == item.product_id) {
+            stockItem.stock = stockItem.stock - item.quantity;
+          }
+        });
+      });
+
+      return res.status(200).json({
+        "reservation_id": reservationId,
+        "status": "reserved"
+      });
+    }
 );
 
 /**
