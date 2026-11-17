@@ -21,4 +21,4 @@ COPY --from=builder /app/dist ./dist
 
 EXPOSE 8081
 
-CMD ["node", "dist/server.js"]
+CMD ["node", "--require", "./dist/instrumentation.js", "dist/server.js"]
