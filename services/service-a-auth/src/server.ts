@@ -6,6 +6,8 @@ import { prometheusExporter } from './instrumentation';
 import express, { Request, Response } from 'express';
 import cors from 'cors';
 import jwt from 'jsonwebtoken';
+import client from 'prom-client';
+import { trace, context } from '@opentelemetry/api';
 import { randomBytes } from 'node:crypto';
 import { LoginRequest, TokenResponse, AuthVerifyResponse, ErrorResponse } from './types';
 import { context, propagation, trace, SpanStatusCode } from '@opentelemetry/api';
@@ -129,7 +131,36 @@ app.use((req, res, next) => {
 app.use(cors());
 app.use(express.json());
 
-// Operational health probe
+// ─── Prometheus RED Metrics ────────────────────────────────────────
+client.collectDefaultMetrics({ labels: { service: SERVICE_NAME } });
+
+const httpRequestsTotal = new client.Counter({
+  name: 'http_requests_total',
+  help: 'Total number of HTTP requests',
+  labelNames: ['method', 'route', 'status_code'] as const,
+});
+
+const httpRequestDurationSeconds = new client.Histogram({
+  name: 'http_request_duration_seconds',
+  help: 'Duration of HTTP requests in seconds',
+  labelNames: ['method', 'route', 'status_code'] as const,
+  buckets: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
+});
+
+app.use((req: Request, res: Response, next: NextFunction) => {
+  if (req.path === '/metrics') return next();
+  const start = process.hrtime.bigint();
+  res.on('finish', () => {
+    const durationSec = Number(process.hrtime.bigint() - start) / 1e9;
+    const route = req.route?.path ?? req.path;
+    const labels = { method: req.method, route, status_code: res.statusCode };
+    httpRequestsTotal.inc(labels);
+    httpRequestDurationSeconds.observe(labels, durationSec);
+  });
+  next();
+});
+
+// ─── Operational Health Probe ──────────────────────────────────────
 app.get('/healthz', (_req: Request, res: Response) => {
   res.status(200).json({
     status: 'ok',
@@ -146,9 +177,7 @@ app.get('/metrics', (req: Request, res: Response) => {
   prometheusExporter.getMetricsRequestHandler(req, res);
 });
 
-// ==========================================
-// Service Endpoints
-// ==========================================
+// ─── Business Endpoints ────────────────────────────────────────────
 
 /**
  * POST /auth/login

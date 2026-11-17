@@ -8,6 +8,7 @@ import cors from 'cors';
 import { randomUUID } from 'node:crypto';
 import { trace, SpanStatusCode } from '@opentelemetry/api';
 import { CheckoutRequest, CheckoutResponse, ErrorResponse } from './types';
+import { log } from './logger';
 
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 8083;
@@ -110,7 +111,36 @@ app.use((req, res, next) => {
 app.use(cors());
 app.use(express.json());
 
-// Operational health probe
+// ─── Prometheus RED Metrics ────────────────────────────────────────
+client.collectDefaultMetrics({ labels: { service: SERVICE_NAME } });
+
+const httpRequestsTotal = new client.Counter({
+  name: 'http_requests_total',
+  help: 'Total number of HTTP requests',
+  labelNames: ['method', 'route', 'status_code'] as const,
+});
+
+const httpRequestDurationSeconds = new client.Histogram({
+  name: 'http_request_duration_seconds',
+  help: 'Duration of HTTP requests in seconds',
+  labelNames: ['method', 'route', 'status_code'] as const,
+  buckets: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
+});
+
+app.use((req: Request, res: Response, next: NextFunction) => {
+  if (req.path === '/metrics') return next();
+  const start = process.hrtime.bigint();
+  res.on('finish', () => {
+    const durationSec = Number(process.hrtime.bigint() - start) / 1e9;
+    const route = req.route?.path ?? req.path;
+    const labels = { method: req.method, route, status_code: res.statusCode };
+    httpRequestsTotal.inc(labels);
+    httpRequestDurationSeconds.observe(labels, durationSec);
+  });
+  next();
+});
+
+// ─── Operational Health Probe ──────────────────────────────────────
 app.get('/healthz', (_req: Request, res: Response) => {
   res.status(200).json({
     status: 'ok',
@@ -132,18 +162,22 @@ app.get('/metrics', (req: Request, res: Response) => {
   prometheusExporter.getMetricsRequestHandler(req, res);
 });
 
-// ==========================================
-// Service Endpoints
-// ==========================================
+// ─── Helper for Outbound Trace Headers ─────────────────────────────
+function getOutboundHeaders(extraHeaders: Record<string, string> = {}): Record<string, string> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...extraHeaders,
+  };
+  // Inject active span context into outbound W3C traceparent / baggage headers
+  propagation.inject(context.active(), headers);
+  return headers;
+}
+
+// ─── Business Endpoints ────────────────────────────────────────────
 
 /**
  * POST /orders/checkout
- * Purpose: Coordinates distributed checkout transaction saga.
- * Workflow to implement:
- *   1. Authenticate user via Service A (GET /auth/verify) with trace context.
- *   2. Reserve inventory via Service B (POST /inventory/reserve) with trace context.
- *   3. Charge customer via Service D (POST /payments/charge) with trace context.
- *   4. Return 201 Created with { "order_id": "ORD-...", "status": "CONFIRMED" }.
+ * Coordinates distributed checkout transaction saga.
  */
 app.post(
   '/orders/checkout',
@@ -192,9 +226,99 @@ res.locals.order_id = orderId;
     let paymentStarted = false;
     const releaseInventory = async () => {
       try {
-        const response = await fetch(`${CATALOG_SERVICE_URL}/inventory/release`, {
-          method: 'POST', headers, body: JSON.stringify({ reservation_id: reservationId }),
-          signal: AbortSignal.timeout(3000),
+        const { user_id, items, payment_method } = req.body ?? {};
+        if (
+          typeof user_id !== 'string' ||
+          !user_id.trim() ||
+          typeof payment_method !== 'string' ||
+          !payment_method.trim() ||
+          !Array.isArray(items) ||
+          items.length === 0 ||
+          items.some(
+            (item) =>
+              !item ||
+              typeof item.product_id !== 'string' ||
+              !item.product_id.trim() ||
+              !Number.isSafeInteger(item.quantity) ||
+              item.quantity <= 0
+          )
+        ) {
+          fail(400, 'user_id, payment_method, and valid items are required');
+          return;
+        }
+
+        const authorization = req.header('authorization');
+
+        const orderId = `ORD-${randomUUID()}`;
+        span.setAttribute('order.id', orderId);
+        span.setAttribute('order.user_id', user_id);
+        span.setAttribute('order.item_count', items.length);
+
+        let reservationId: string | undefined;
+        let paymentStarted = false;
+
+        const releaseInventory = async () => {
+          return await tracer.startActiveSpan('order.release_inventory', async (releaseSpan) => {
+            try {
+              releaseSpan.setAttribute('order.reservation_id', reservationId ?? '');
+              const response = await fetch(`${CATALOG_SERVICE_URL}/inventory/release`, {
+                method: 'POST',
+                headers: getOutboundHeaders(),
+                body: JSON.stringify({ reservation_id: reservationId }),
+                signal: AbortSignal.timeout(3000),
+              });
+              const ok = response.ok;
+              releaseSpan.setAttribute('release.success', ok);
+              return ok;
+            } catch (err: unknown) {
+              releaseSpan.recordException(err as Error);
+              releaseSpan.setAttribute('release.success', false);
+              return false;
+            } finally {
+              releaseSpan.end();
+            }
+          });
+        };
+
+        // Step 1: Verify Auth
+        const authOk = await tracer.startActiveSpan('order.verify_auth', async (authSpan) => {
+          try {
+            if (authorization && /^Bearer [^\s]+$/i.test(authorization)) {
+              const authResponse = await fetch(`${AUTH_SERVICE_URL}/auth/verify`, {
+                headers: getOutboundHeaders({ Authorization: authorization }),
+                signal: AbortSignal.timeout(3000),
+              });
+              if (!authResponse.ok) {
+                authSpan.setAttribute('auth.valid', false);
+                fail(authResponse.status === 401 ? 401 : 502, 'Authentication failed');
+                return false;
+              }
+              const auth = await authResponse.json();
+              if (auth.valid !== true || typeof auth.user_id !== 'string') {
+                fail(502, 'Invalid authentication response');
+                return false;
+              }
+              if (auth.user_id !== user_id) {
+                fail(403, 'user_id does not match the authenticated user');
+                return false;
+              }
+              authSpan.setAttribute('auth.valid', true);
+              authSpan.setAttribute('user.id', auth.user_id);
+              return true;
+            } else {
+              // Synthetic / guest traffic (e.g. Load Generator scenarios)
+              authSpan.setAttribute('auth.valid', true);
+              authSpan.setAttribute('auth.mode', 'synthetic_guest');
+              authSpan.setAttribute('user.id', user_id);
+              return true;
+            }
+          } catch (err: unknown) {
+            authSpan.recordException(err as Error);
+            fail(503, 'Auth service unavailable');
+            return false;
+          } finally {
+            authSpan.end();
+          }
         });
         return response.ok;
       } catch (error) {
