@@ -83,6 +83,42 @@ The `docker-compose.yml` provisions the mandatory observability tools:
 
 ---
 
+### Telemetry implementation and regression checks
+
+All four services declare their telemetry dependencies and include a `package-lock.json`.
+Service Dockerfiles use `npm ci` for both build and production dependencies; use the
+same command locally instead of installing OpenTelemetry packages separately.
+
+Services B and D initialize OpenTelemetry before Express, expose Prometheus metrics at
+`/metrics`, and export HTTP and business-operation spans over OTLP/gRPC. Their RED metrics
+are `http_requests_total` and `http_request_duration_seconds`, with bounded `method`,
+`route`, and `status` labels matching A/C. Health probes and metric scrapes are excluded
+from B/D request metrics and traces. Client disconnects are counted once with telemetry
+status `499`.
+
+Application logs are structured JSON on stdout/stderr, including `service`, `level`,
+`event`, `trace_id`, and `span_id`. Alloy collects all four service containers and sends
+their logs to Loki; services do not need to push logs to Loki themselves. Trace and
+business identifiers remain log fields, not indexed Loki labels or metric labels.
+
+To install, build, and run the telemetry regression checks from the repository root:
+
+```bash
+for service in services/*; do
+  (cd "$service" && npm ci && npm run build) || exit 1
+done
+node --test tests/observability.test.cjs
+```
+
+The tests run local instances of all four services and receive real OTLP/gRPC trace
+exports without Docker. They verify distributed trace propagation, correlated logs,
+Prometheus metrics, scrape/probe exclusion, errors, client disconnects, and Alloy's
+service-selection rule. They do not validate running Grafana, Loki, or Jaeger containers.
+Payment randomness is controlled only in the test process; production behavior is unchanged.
+The existing dashboard and load-generator integration issues are separate from these checks.
+
+---
+
 ## Getting Started
 
 ### 1. Prerequisites
@@ -132,7 +168,7 @@ curl -i http://localhost:8081/auth/verify
 To develop your assigned microservice locally without Docker:
 ```bash
 cd services/service-a-auth
-npm install
+npm ci
 npm run dev
 ```
 The server will start with hot-reloading on port 8081.

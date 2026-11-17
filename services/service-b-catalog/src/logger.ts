@@ -1,46 +1,26 @@
-import { trace, context } from '@opentelemetry/api';
+import { trace } from '@opentelemetry/api';
 
 const SERVICE_NAME = 'service-b-catalog';
-const LOKI_URL = process.env.LOKI_URL || 'http://loki:3100';
 
 type LogLevel = 'info' | 'warn' | 'error' | 'debug';
 
-export function log(level: LogLevel, message: string, extra?: Record<string, unknown>): void {
-  const span = trace.getSpan(context.active());
-  const spanContext = span?.spanContext();
+export function log(level: LogLevel, event: string, extra?: Record<string, unknown>): void {
+  const spanContext = trace.getActiveSpan()?.spanContext();
 
-  const entry: Record<string, unknown> = {
+  const line = JSON.stringify({
     timestamp: new Date().toISOString(),
     level,
     service: SERVICE_NAME,
-    message,
-    ...(spanContext?.traceId ? { trace_id: spanContext.traceId } : {}),
-    ...(spanContext?.spanId ? { span_id: spanContext.spanId } : {}),
+    event,
+    trace_id: spanContext?.traceId ?? null,
+    span_id: spanContext?.spanId ?? null,
     ...extra,
-  };
+  });
 
-  const line = JSON.stringify(entry);
+  // Alloy collects container stdout/stderr and forwards each entry to Loki once.
   if (level === 'error') {
     process.stderr.write(line + '\n');
   } else {
     process.stdout.write(line + '\n');
   }
-
-  // Asynchronously forward to Loki
-  const nanoTime = `${Date.now()}000000`;
-  fetch(`${LOKI_URL}/loki/api/v1/push`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      streams: [
-        {
-          stream: {
-            service: SERVICE_NAME,
-            level,
-          },
-          values: [[nanoTime, line]],
-        },
-      ],
-    }),
-  }).catch(() => {});
 }
