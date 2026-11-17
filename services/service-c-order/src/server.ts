@@ -1,21 +1,113 @@
-import express, { Request, Response, NextFunction } from 'express';
+//potential trap: loading Express before initialization can prevent automatic instrumentation from attaching. Initialize the SDK first
+import './instrumentation';
+import { metrics } from '@opentelemetry/api';
+import { prometheusExporter } from './instrumentation';
+
+import express, { Request, Response } from 'express';
 import cors from 'cors';
-import client from 'prom-client';
-import { trace, context, propagation } from '@opentelemetry/api';
 import { randomUUID } from 'node:crypto';
+import { trace, SpanStatusCode } from '@opentelemetry/api';
 import { CheckoutRequest, CheckoutResponse, ErrorResponse } from './types';
 import { log } from './logger';
 
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 8083;
 const SERVICE_NAME = 'service-c-order';
-const tracer = trace.getTracer(SERVICE_NAME, '1.0');
+const tracer = trace.getTracer(SERVICE_NAME);
+const meter = metrics.getMeter(SERVICE_NAME);
+
+const httpRequests = meter.createCounter('http_requests', {
+  description: 'Number of completed HTTP requests',
+});
+
+const httpDuration = meter.createHistogram('http_request_duration_seconds', {
+  description: 'Duration of completed HTTP requests',
+  unit: 's',
+});
+
+function logEvent(
+  level: 'info' | 'warn' | 'error',
+  event: string,
+  fields: Record<string, unknown> = {},
+) {
+  const spanContext = trace.getActiveSpan()?.spanContext();
+
+  console.log(JSON.stringify({
+    timestamp: new Date().toISOString(),
+    level,
+    service: SERVICE_NAME,
+    event,
+    trace_id: spanContext?.traceId ?? null,
+    span_id: spanContext?.spanId ?? null,
+    ...fields,
+  }));
+}
 
 // Downstream service configuration
 const AUTH_SERVICE_URL = process.env.AUTH_SERVICE_URL || 'http://service-a:8081';
 const CATALOG_SERVICE_URL = process.env.CATALOG_SERVICE_URL || 'http://service-b:8082';
 const PAYMENT_SERVICE_URL = process.env.PAYMENT_SERVICE_URL || 'http://service-d:8084';
 
+app.use((req, res, next) => {
+  // Exclude scrapes so monitoring traffic does not affect RED metrics.
+  if (req.path === '/metrics') {
+    next();
+    return;
+  }
+
+  const started = process.hrtime.bigint();
+  // potential trap: reading the active span only inside "finish" may lose request correlation. Following the course, capture its IDs while the request context is active.
+  const requestSpanContext = trace.getActiveSpan()?.spanContext();
+
+  res.once('finish', () => {
+    const route =
+      typeof req.route?.path === 'string'
+        ? req.route.path
+        : 'unmatched';
+
+    const method = [
+      'GET', 'POST', 'PUT', 'PATCH', 'DELETE',
+      'HEAD', 'OPTIONS', 'CONNECT', 'TRACE',
+    ].includes(req.method)
+      ? req.method
+      : 'OTHER';
+
+    const labels = {
+      method,
+      route,
+      status: String(res.statusCode),
+    };
+
+    const durationSeconds =
+      Number(process.hrtime.bigint() - started) / 1e9;
+
+    // Never add user IDs, order IDs, tokens or raw URLs as metric labels.
+    httpRequests.add(1, labels);
+    httpDuration.record(durationSeconds, labels);
+      logEvent(
+      res.statusCode >= 500
+        ? 'error'
+        : res.statusCode >= 400
+          ? 'warn'
+          : 'info',
+      'http.request.completed',
+      {
+        method,
+        route,
+        status: res.statusCode,
+        duration_seconds: durationSeconds,
+        trace_id: requestSpanContext?.traceId ?? null,
+        span_id: requestSpanContext?.spanId ?? null,
+        user_id: res.locals.user_id,
+        order_id: res.locals.order_id,
+        reservation_id: res.locals.reservation_id,
+        transaction_id: res.locals.transaction_id,
+      },
+    );
+  });
+
+  next();
+});
 app.use(cors());
 app.use(express.json());
 
@@ -62,14 +154,12 @@ app.get('/healthz', (_req: Request, res: Response) => {
   });
 });
 
-// ─── Metrics Exposition ────────────────────────────────────────────
-app.get('/metrics', async (_req: Request, res: Response) => {
-  try {
-    res.set('Content-Type', client.register.contentType);
-    res.end(await client.register.metrics());
-  } catch (err: unknown) {
-    res.status(500).end(err instanceof Error ? err.message : String(err));
-  }
+/**
+ * GET /metrics
+ * Unauthenticated Prometheus exposition endpoint for OpenTelemetry metrics.
+ */
+app.get('/metrics', (req: Request, res: Response) => {
+  prometheusExporter.getMetricsRequestHandler(req, res);
 });
 
 // ─── Helper for Outbound Trace Headers ─────────────────────────────
@@ -92,14 +182,49 @@ function getOutboundHeaders(extraHeaders: Record<string, string> = {}): Record<s
 app.post(
   '/orders/checkout',
   async (req: Request<{}, {}, CheckoutRequest>, res: Response<CheckoutResponse | ErrorResponse>) => {
-    await tracer.startActiveSpan('order.checkout', async (span) => {
-      const fail = (status: number, message: string) => {
-        span.setAttribute('order.status', 'FAILED');
-        span.setAttribute('order.error', message);
-        log('warn', 'Checkout failed', { error: message, status_code: status });
-        res.status(status).json({ error: 'Checkout failed', message, status_code: status });
-      };
+    //potential trap: manually adding CLIENT spans around fetch would duplicate Undici instrumentation. but active context links its automatic CLIENT spans to this business operation
+    return tracer.startActiveSpan('checkout', async (span) => {
+      try {
+    const fail = (status: number, message: string) => {
+      span.setAttribute('checkout.outcome', 'failed');
+      span.setAttribute('checkout.response_status', status);
+      span.addEvent('checkout.failure', { reason: message });
 
+      if (status >= 500) {
+        span.setStatus({ code: SpanStatusCode.ERROR });
+      }
+
+      res.status(status).json({
+        error: 'Checkout failed',
+        message,
+        status_code: status,
+      });
+    };
+    const { user_id, items, payment_method } = req.body ?? {};
+    if (typeof user_id !== 'string' || !user_id.trim() || typeof payment_method !== 'string' || !payment_method.trim()
+      || !Array.isArray(items) || items.length === 0 || items.some((item) => !item
+        || typeof item.product_id !== 'string' || !item.product_id.trim()
+        || !Number.isSafeInteger(item.quantity) || item.quantity <= 0)) {
+      fail(400, 'user_id, payment_method, and valid items are required');
+      return;
+    }
+    const authorization = req.header('authorization');
+    if (!authorization || !/^Bearer [^\s]+$/i.test(authorization)) {
+      fail(401, 'Bearer token is required');
+      return;
+    }
+
+// potential trap: copying the same traceparent to every call reused its parent ID? BUT outgoing calls need child spans. Undici instrumentation creates those spans and injects their context.
+const headers: Record<string, string> = {
+  'Content-Type': 'application/json',
+};
+    const orderId = `ORD-${randomUUID()}`;
+    // potential trap: dynamic IDs could become metric labels. we put these IDs in span attributes instead.
+span.setAttribute('order.id', orderId);
+res.locals.order_id = orderId;
+    let reservationId: string | undefined;
+    let paymentStarted = false;
+    const releaseInventory = async () => {
       try {
         const { user_id, items, payment_method } = req.body ?? {};
         if (
@@ -195,181 +320,118 @@ app.post(
             authSpan.end();
           }
         });
-
-        if (!authOk) return;
-
-        // Step 2: Fetch Products to calculate total
-        let totalCents = 0;
-        const catalogOk = await tracer.startActiveSpan('order.fetch_catalog', async (catalogSpan) => {
-          try {
-            const productsResponse = await fetch(`${CATALOG_SERVICE_URL}/products`, {
-              headers: getOutboundHeaders(),
-              signal: AbortSignal.timeout(3000),
-            });
-            if (!productsResponse.ok) {
-              fail(502, 'Catalog service failed to return products');
-              return false;
-            }
-            const products = await productsResponse.json();
-            if (!Array.isArray(products)) {
-              fail(502, 'Invalid catalog response');
-              return false;
-            }
-            for (const item of items) {
-              const product = products.find(
-                (p) => p && (p.id === item.product_id || p.id === item.product_id.replace(/^PROD-/, ''))
-              );
-              if (!product) {
-                fail(400, `Unknown product: ${item.product_id}`);
-                return false;
-              }
-              if (!Number.isSafeInteger(product.price_cents) || product.price_cents < 0) {
-                fail(502, 'Invalid product price');
-                return false;
-              }
-              totalCents += product.price_cents * item.quantity;
-            }
-            if (!Number.isSafeInteger(totalCents)) {
-              fail(400, 'Checkout total is too large');
-              return false;
-            }
-            catalogSpan.setAttribute('order.total_cents', totalCents);
-            return true;
-          } catch (err: unknown) {
-            catalogSpan.recordException(err as Error);
-            fail(503, 'Catalog service unavailable');
-            return false;
-          } finally {
-            catalogSpan.end();
-          }
+        return response.ok;
+      } catch (error) {
+        logEvent('error', 'inventory.release.exception', {
+          route: '/orders/checkout',
+          order_id: orderId,
+          reservation_id: reservationId,
+          error_type: error instanceof Error ? error.name : 'UnknownError',
+          error_message: error instanceof Error ? error.message : 'Unknown error',
         });
+        span.recordException(error instanceof Error ? error : new Error(String(error)));
+        span.addEvent('inventory.release.failed');
+        return false;
+      }
+    };
 
-        if (!catalogOk) return;
+    try {
+      const authResponse = await fetch(`${AUTH_SERVICE_URL}/auth/verify`, {
+        headers: { ...headers, Authorization: authorization }, signal: AbortSignal.timeout(3000),
+      });
+      if (!authResponse.ok) {
+        fail(authResponse.status === 401 ? 401 : 502, 'Authentication failed');
+        return;
+      }
+      const auth = await authResponse.json();
+      if (auth.valid !== true || typeof auth.user_id !== 'string') { fail(502, 'Invalid authentication response'); return; }
+      if (auth.user_id !== user_id) { fail(403, 'user_id does not match the authenticated user'); return; }
+      //potential trap: a manually assigned baggage header is not active OpenTelemetry context. wekeep this identifier as an attribute on the current span.
+      trace.getActiveSpan()?.setAttribute('user.id', auth.user_id);
+      res.locals.user_id = auth.user_id;
 
-        span.setAttribute('order.total_cents', totalCents);
+      // Payment needs amount_cents; the existing reservation response contains no prices.
+      const productsResponse = await fetch(`${CATALOG_SERVICE_URL}/products`, { headers, signal: AbortSignal.timeout(3000) });
+      if (!productsResponse.ok) { fail(502, 'Catalog service failed to return products'); return; }
+      const products = await productsResponse.json();
+      if (!Array.isArray(products)) { fail(502, 'Invalid catalog response'); return; }
+      let totalCents = 0;
+      for (const item of items) {
+        const product = products.find((product) => product && product.id === item.product_id);
+        if (!product) { fail(400, `Unknown product: ${item.product_id}`); return; }
+        if (!Number.isSafeInteger(product.price_cents) || product.price_cents < 0) { fail(502, 'Invalid product price'); return; }
+        totalCents += product.price_cents * item.quantity;
+      }
+      if (!Number.isSafeInteger(totalCents)) { fail(400, 'Checkout total is too large'); return; }
 
-        // Step 3: Reserve Inventory
-        const reserveOk = await tracer.startActiveSpan('order.reserve_inventory', async (reserveSpan) => {
-          try {
-            const reservationResponse = await fetch(`${CATALOG_SERVICE_URL}/inventory/reserve`, {
-              method: 'POST',
-              headers: getOutboundHeaders(),
-              body: JSON.stringify({ items }),
-              signal: AbortSignal.timeout(3000),
-            });
-            if (!reservationResponse.ok) {
-              fail(reservationResponse.status === 409 ? 409 : 502, 'Inventory reservation failed');
-              return false;
-            }
-            const reservation = await reservationResponse.json();
-            if (
-              reservation.status !== 'reserved' ||
-              typeof reservation.reservation_id !== 'string' ||
-              !reservation.reservation_id
-            ) {
-              fail(502, 'Invalid reservation response');
-              return false;
-            }
-            reservationId = reservation.reservation_id;
-            if (reservationId) {
-              reserveSpan.setAttribute('reservation.id', reservationId);
-            }
-            return true;
-          } catch (err: unknown) {
-            reserveSpan.recordException(err as Error);
-            fail(503, 'Catalog service unavailable for reservation');
-            return false;
-          } finally {
-            reserveSpan.end();
-          }
-        });
+      const reservationResponse = await fetch(`${CATALOG_SERVICE_URL}/inventory/reserve`, {
+        method: 'POST', headers, body: JSON.stringify({ items }), signal: AbortSignal.timeout(3000),
+      });
+      if (!reservationResponse.ok) { fail(reservationResponse.status === 409 ? 409 : 502, 'Inventory reservation failed'); return; }
+      const reservation = await reservationResponse.json();
+      if (reservation.status !== 'reserved' || typeof reservation.reservation_id !== 'string' || !reservation.reservation_id) {
+        fail(502, 'Invalid reservation response'); return;
+      }
+      reservationId = reservation.reservation_id;
+      res.locals.reservation_id = reservationId;
+      if (reservationId !== undefined) {
+        span.setAttribute('reservation.id', reservationId);
+      }
+      span.setAttribute('order.total_cents', totalCents);
 
-        if (!reserveOk) return;
+      paymentStarted = true;
+      const paymentResponse = await fetch(`${PAYMENT_SERVICE_URL}/payments/charge`, {
+        method: 'POST', headers,
+        body: JSON.stringify({ order_id: orderId, amount_cents: totalCents, idempotency_key: orderId }),
+        signal: AbortSignal.timeout(3000),
+      });
+      const payment = await paymentResponse.json().catch(() => null);
+      const declined = (paymentResponse.status >= 400 && paymentResponse.status < 500)
+        || (paymentResponse.ok && ['FAILED_DECLINED', 'FAILED_INSUFFICIENT_FUNDS'].includes(payment?.status));
+      if (declined) {
+        span.addEvent('payment.declined');
+        span.addEvent('inventory.release.requested');
+        if (!await releaseInventory()) { fail(502, 'Payment failed and inventory release failed'); return; }
+        res.status(402).json({ order_id: orderId, status: 'FAILED', message: 'Payment declined; inventory released' });
+        return;
+      }
+      if (!paymentResponse.ok || payment?.status !== 'SUCCESS' || typeof payment.transaction_id !== 'string' || !payment.transaction_id) {
+        fail(502, `Payment outcome unknown; reservation ${reservationId} retained`); return;
+      }
+      span.setAttribute('checkout.outcome', 'confirmed');
+      span.setAttribute('payment.transaction_id', payment.transaction_id);
+      res.locals.transaction_id = payment.transaction_id;
+      res.status(201).json({
+        order_id: orderId, status: 'CONFIRMED', total_cents: totalCents,
+        reservation_id: reservationId, transaction_id: payment.transaction_id,
+      });
+    } catch (error) {
+      //potential trap: returning an HTTP error alone lost diagnostic details. we record the exception.
+      logEvent('error', 'checkout.exception', {
+        route: '/orders/checkout',
+        order_id: orderId,
+        reservation_id: reservationId,
+        error_type: error instanceof Error ? error.name : 'UnknownError',
+        error_message: error instanceof Error ? error.message : 'Unknown error',
+      });
+      span.recordException(error instanceof Error ? error : new Error(String(error)));
+      span.setStatus({ code: SpanStatusCode.ERROR });
 
-        // Step 4: Charge Payment
-        paymentStarted = true;
-        await tracer.startActiveSpan('order.charge_payment', async (paymentSpan) => {
-          try {
-            paymentSpan.setAttribute('payment.amount_cents', totalCents);
-            paymentSpan.setAttribute('payment.idempotency_key', orderId);
+      if (reservationId && !paymentStarted && !await releaseInventory()) {
+        fail(502, 'Checkout failed and inventory release failed');
+        return;
+      }
 
-            const paymentResponse = await fetch(`${PAYMENT_SERVICE_URL}/payments/charge`, {
-              method: 'POST',
-              headers: getOutboundHeaders(),
-              body: JSON.stringify({ order_id: orderId, amount_cents: totalCents, idempotency_key: orderId }),
-              signal: AbortSignal.timeout(3000),
-            });
-
-            const payment = await paymentResponse.json().catch(() => null);
-            const declined =
-              (paymentResponse.status >= 400 && paymentResponse.status < 500) ||
-              (paymentResponse.ok && ['FAILED_DECLINED', 'FAILED_INSUFFICIENT_FUNDS'].includes(payment?.status));
-
-            if (declined) {
-              paymentSpan.setAttribute('payment.declined', true);
-              if (!(await releaseInventory())) {
-                fail(502, 'Payment failed and inventory release failed');
-                return;
-              }
-              span.setAttribute('order.status', 'DECLINED');
-              log('warn', 'Order payment declined, inventory released', { order_id: orderId });
-              res.status(402).json({
-                order_id: orderId,
-                status: 'FAILED',
-                message: 'Payment declined; inventory released',
-              });
-              return;
-            }
-
-            if (
-              !paymentResponse.ok ||
-              payment?.status !== 'SUCCESS' ||
-              typeof payment.transaction_id !== 'string' ||
-              !payment.transaction_id
-            ) {
-              paymentSpan.setAttribute('payment.unknown', true);
-              fail(502, `Payment outcome unknown; reservation ${reservationId} retained`);
-              return;
-            }
-
-            paymentSpan.setAttribute('payment.transaction_id', payment.transaction_id);
-            span.setAttribute('order.status', 'CONFIRMED');
-            span.setAttribute('order.transaction_id', payment.transaction_id);
-            if (reservationId) {
-              span.setAttribute('order.reservation_id', reservationId);
-            }
-
-            log('info', 'Order checkout confirmed', {
-              order_id: orderId,
-              user_id,
-              total_cents: totalCents,
-              transaction_id: payment.transaction_id,
-              reservation_id: reservationId,
-            });
-
-            res.status(201).json({
-              order_id: orderId,
-              status: 'CONFIRMED',
-              total_cents: totalCents,
-              reservation_id: reservationId,
-              transaction_id: payment.transaction_id,
-            });
-          } catch (err: unknown) {
-            paymentSpan.recordException(err as Error);
-            if (reservationId && !paymentStarted && !(await releaseInventory())) {
-              fail(502, 'Checkout failed and inventory release failed');
-              return;
-            }
-            fail(503, paymentStarted ? `Payment outcome unknown; reservation ${reservationId} retained` : 'A checkout dependency is unavailable');
-          } finally {
-            paymentSpan.end();
-          }
-        });
-      } catch (err: unknown) {
-        span.recordException(err as Error);
-        log('error', 'Unexpected error during checkout', { error: String(err) });
-        res.status(500).json({ error: 'Internal Server Error', message: 'Checkout failure', status_code: 500 });
+      // A lost payment response does not prove the charge failed
+      fail(
+        503,
+        paymentStarted
+          ? `Payment outcome unknown; reservation ${reservationId} retained`
+          : 'A checkout dependency is unavailable',
+      );
+    }
       } finally {
+        // potential trap: success and early error returns must both finish the business span.
         span.end();
       }
     });
@@ -377,6 +439,12 @@ app.post(
 );
 
 app.listen(PORT, '0.0.0.0', () => {
-  log('info', `Listening on port ${PORT}`);
-  log('info', `Downstream targets: Auth=${AUTH_SERVICE_URL}, Catalog=${CATALOG_SERVICE_URL}, Payment=${PAYMENT_SERVICE_URL}`);
+  logEvent('info', 'service.started', {
+    port: PORT,
+    downstreams: {
+      auth: AUTH_SERVICE_URL,
+      catalog: CATALOG_SERVICE_URL,
+      payment: PAYMENT_SERVICE_URL,
+    },
+  });
 });

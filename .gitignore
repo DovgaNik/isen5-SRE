@@ -1,5 +1,6 @@
 .env
 **/node_modules/
 **/dist/
+local-testing/
 package-lock.json
 .idea
