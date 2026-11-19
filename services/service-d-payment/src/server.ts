@@ -53,7 +53,7 @@ app.post(
           span.setAttribute('order.id', req.body.order_id);
           res.locals.order_id = req.body.order_id;
         }
-        const delay = Math.floor(Math.random() * 4000);
+        const delay = Math.floor(Math.random() * 2000);
         await new Promise(f => setTimeout(f, delay));
         if (!app.get("idempotencyStore").has(req.body.idempotency_key)) {
           let response: ChargeResponse;

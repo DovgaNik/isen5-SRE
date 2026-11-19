@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "test": "node --test ../tests/load-generator.test.cjs",
     "preview": "vite preview"
   },
   "dependencies": {},

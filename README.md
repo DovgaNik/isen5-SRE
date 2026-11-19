@@ -107,7 +107,8 @@ To install, build, and run the telemetry regression checks from the repository r
 for service in services/*; do
   (cd "$service" && npm ci && npm run build) || exit 1
 done
-node --test tests/observability.test.cjs
+(cd load-generator && npm ci && npm run build)
+node --test tests/load-generator.test.cjs tests/observability.test.cjs
 ```
 
 The tests run local instances of all four services and receive real OTLP/gRPC trace
@@ -115,7 +116,11 @@ exports without Docker. They verify distributed trace propagation, correlated lo
 Prometheus metrics, scrape/probe exclusion, errors, client disconnects, and Alloy's
 service-selection rule. They do not validate running Grafana, Loki, or Jaeger containers.
 Payment randomness is controlled only in the test process; production behavior is unchanged.
-The existing dashboard and load-generator integration issues are separate from these checks.
+The generator checks cover real login/user identity, catalog IDs and stock selection,
+token refresh, and failure handling. For an opt-in checkout against the running stack
+with Jaeger verification, run `node tests/live-checkout.cjs` (consumes one item on success).
+See [`load-generator/README.md`](load-generator/README.md#full-checkout-traces-in-jaeger)
+for the complete waterfall workflow. Dashboard provisioning remains separate from these checks.
 
 ---
 

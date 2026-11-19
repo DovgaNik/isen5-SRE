@@ -89,7 +89,7 @@ services:
   # Mandatory Open-Source Observability Stack
   # ============================================================================
   otel-collector:
-    image: otel/opentelemetry-collector-contrib:0.108.0
+    image: docker.io/otel/opentelemetry-collector-contrib:0.108.0
     container_name: cloudstore-otel-collector
     command: ["--config=/etc/otelcol-contrib/config.yaml"]
     volumes:
@@ -104,7 +104,7 @@ services:
       - cloudstore-net
 
   prometheus:
-    image: prom/prometheus:v2.54.0
+    image: docker.io/prom/prometheus:v2.54.0
     container_name: cloudstore-prometheus
     volumes:
       - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
@@ -114,7 +114,7 @@ services:
       - cloudstore-net
 
   jaeger:
-    image: jaegertracing/all-in-one:1.58
+    image: docker.io/jaegertracing/all-in-one:1.58
     container_name: cloudstore-jaeger
     ports:
       - "16686:16686" # Web UI
@@ -124,7 +124,7 @@ services:
       - cloudstore-net
 
   loki:
-    image: grafana/loki:3.1.0
+    image: docker.io/grafana/loki:3.1.0
     container_name: cloudstore-loki
     ports:
       - "3100:3100"
@@ -134,7 +134,7 @@ services:
     networks:
       - cloudstore-net
   alloy:
-    image: grafana/alloy:latest
+    image: docker.io/grafana/alloy:latest
     container_name: cloudstore-alloy
     command:
       - run
@@ -142,14 +142,13 @@ services:
       - /etc/alloy/config.alloy
     volumes:
       - ./observability/alloy/config.alloy:/etc/alloy/config.alloy:ro
-      - /var/run/docker.sock:/var/run/docker.sock:ro
       - alloy-data:/var/lib/alloy/data
     depends_on:
       - loki
     networks:
       - cloudstore-net
   grafana:
-    image: grafana/grafana:11.1.0
+    image: docker.io/grafana/grafana:11.1.0
     container_name: cloudstore-grafana
     ports:
       - "3000:3000"

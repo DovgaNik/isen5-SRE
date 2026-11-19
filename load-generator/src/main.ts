@@ -174,7 +174,7 @@ function createStreamItemElement(rec: RequestRecord): HTMLElement {
       <span class="stream-time">${timeStr}</span>
       <span class="method-badge ${methodClass}">${rec.method}</span>
       <span class="status-badge ${statusClass}">${statusText}</span>
-      <span class="stream-url" title="${rec.url}">${rec.url}</span>
+      <span class="stream-url"></span>
       <span class="stream-latency">${rec.durationMs}ms</span>
       <span class="stream-trace" title="${rec.traceId || 'No trace context'}">${traceDisplay}</span>
       <span class="stream-chevron">▾</span>
@@ -183,19 +183,41 @@ function createStreamItemElement(rec: RequestRecord): HTMLElement {
       <div class="drawer-grid">
         <div class="drawer-column">
           <h4>Outgoing Request</h4>
-          <pre class="drawer-code-block">${formatJson({
-            scenario: rec.scenarioName,
-            headers: rec.requestHeaders || {},
-            body: rec.requestBody || null,
-          })}</pre>
+          <pre class="drawer-code-block"></pre>
         </div>
         <div class="drawer-column">
           <h4>Received Response</h4>
-          <pre class="drawer-code-block">${formatJson(rec.error ? { error: rec.error } : rec.responseBody)}</pre>
+          <pre class="drawer-code-block"></pre>
         </div>
       </div>
     </div>
   `;
+
+  const urlElement = item.querySelector('.stream-url') as HTMLElement;
+  urlElement.title = rec.url;
+  urlElement.textContent = rec.url;
+  const blocks = item.querySelectorAll('pre');
+  blocks[0].textContent = formatJson({
+    scenario: rec.scenarioName,
+    headers: rec.requestHeaders || {},
+    body: rec.requestBody || null,
+  });
+  blocks[1].textContent = formatJson(rec.error ? { error: rec.error } : rec.responseBody);
+
+  if (rec.traceId) {
+    const link = document.createElement('a');
+    const jaeger = new URL(window.location.origin);
+    jaeger.port = '16686';
+    jaeger.pathname = `/trace/${rec.traceId}`;
+    link.href = jaeger.href;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    link.className = 'stream-trace';
+    link.title = `Open trace ${rec.traceId} in Jaeger (allow a few seconds for export)`;
+    link.textContent = traceDisplay;
+    link.addEventListener('click', (event) => event.stopPropagation());
+    item.querySelector('.stream-trace')!.replaceWith(link);
+  }
 
   const summary = item.querySelector('.stream-item-summary') as HTMLElement;
   summary.addEventListener('click', () => {
