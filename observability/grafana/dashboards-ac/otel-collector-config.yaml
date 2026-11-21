@@ -1,0 +1,68 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+  docker_stats:
+    endpoint: unix:///var/run/docker.sock
+    api_version: "1.44"
+    collection_interval: 5s
+    timeout: 4s
+    metrics:
+      container.cpu.throttling_data.throttled_time:
+        enabled: true
+      container.memory.pgmajfault:
+        enabled: true
+      container.restarts:
+        enabled: true
+
+processors:
+  batch:
+    timeout: 1s
+    send_batch_size: 256
+
+  filter/use:
+    error_mode: ignore
+    metrics:
+      metric:
+        - 'not IsMatch(resource.attributes["container.name"], "^/?cloudstore-service-(a|c)$")'
+        - 'not IsMatch(name, "^container[.](cpu[.]usage[.]total|cpu[.]throttling_data[.]throttled_time|memory[.]usage[.](total|limit)|memory[.]pgmajfault|restarts)$")'
+
+  transform/use:
+    error_mode: ignore
+    metric_statements:
+      - context: datapoint
+        statements:
+          - set(attributes["service"], "service-a-auth") where IsMatch(resource.attributes["container.name"], "^/?cloudstore-service-a$")
+          - set(attributes["service"], "service-c-order") where IsMatch(resource.attributes["container.name"], "^/?cloudstore-service-c$")
+
+exporters:
+  otlp/jaeger:
+    endpoint: jaeger:4317
+    tls:
+      insecure: true
+
+  prometheus:
+    endpoint: 0.0.0.0:8889
+    namespace: otel
+
+  debug:
+    verbosity: basic
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp/jaeger, debug]
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [prometheus, debug]
+    metrics/use:
+      receivers: [docker_stats]
+      processors: [filter/use, transform/use]
+      exporters: [prometheus]

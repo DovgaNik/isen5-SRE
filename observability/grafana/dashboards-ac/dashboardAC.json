@@ -1,0 +1,2690 @@
+{
+  "id": null,
+  "uid": "dashboard-ac",
+  "title": "dashboardAC",
+  "tags": [
+    "cloudstore",
+    "sre",
+    "auth",
+    "order"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 5,
+  "editable": true,
+  "graphTooltip": 1,
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
+  "refresh": "10s",
+  "links": [
+    {
+      "type": "link",
+      "title": "Prometheus targets",
+      "url": "http://localhost:9090/targets",
+      "targetBlank": true
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "type": "custom",
+        "name": "service",
+        "label": "Service",
+        "query": "A Auth : service-a-auth, C Order : service-c-order",
+        "includeAll": true,
+        "multi": true,
+        "allValue": "service-a-auth|service-c-order",
+        "hide": 0,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "options": [
+          {
+            "selected": true,
+            "text": "All",
+            "value": "$__all"
+          },
+          {
+            "selected": false,
+            "text": "A Auth",
+            "value": "service-a-auth"
+          },
+          {
+            "selected": false,
+            "text": "C Order",
+            "value": "service-c-order"
+          }
+        ]
+      },
+      {
+        "type": "custom",
+        "name": "log_level",
+        "label": "Log level",
+        "query": "debug,info,warn,error",
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "hide": 0,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "options": [
+          {
+            "selected": true,
+            "text": "All",
+            "value": "$__all"
+          },
+          {
+            "selected": false,
+            "text": "debug",
+            "value": "debug"
+          },
+          {
+            "selected": false,
+            "text": "info",
+            "value": "info"
+          },
+          {
+            "selected": false,
+            "text": "warn",
+            "value": "warn"
+          },
+          {
+            "selected": false,
+            "text": "error",
+            "value": "error"
+          }
+        ]
+      },
+      {
+        "type": "textbox",
+        "name": "trace_id",
+        "label": "Jaeger Trace ID",
+        "query": "",
+        "current": {
+          "selected": true,
+          "text": "",
+          "value": ""
+        },
+        "description": "Trace ID for the waterfall panel."
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Checkout · SLI & SLO",
+      "type": "row",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 2,
+      "title": "Availability SLI · SLO ≥ 99.9%",
+      "type": "gauge",
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 6,
+        "h": 6
+      },
+      "description": "2xx / (2xx + 5xx) for POST /orders/checkout. Rolling 30-day window, limited by available history. Business and client 4xx are shown separately. The 99.9% objective comes from the course.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 2,
+          "noValue": "No data",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "red"
+              },
+              {
+                "value": 99.8,
+                "color": "orange"
+              },
+              {
+                "value": 99.9,
+                "color": "green"
+              }
+            ]
+          },
+          "min": 0,
+          "max": 100,
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "100": {
+                  "text": "100%",
+                  "color": "green"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": false
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "(clamp((100 * (1 - ((sum(increase(http_requests_total{job=\"service-c-order\",route=\"/orders/checkout\",method=\"POST\",status=~\"5..\",job=~\"${service:regex}\"}[30d])) or on() (0 * sum(increase(http_requests_total{job=\"service-c-order\",route=\"/orders/checkout\",method=\"POST\",status=~\"2..|5..\",job=~\"${service:regex}\"}[30d])))) / sum(increase(http_requests_total{job=\"service-c-order\",route=\"/orders/checkout\",method=\"POST\",status=~\"2..|5..\",job=~\"${service:regex}\"}[30d]))))), 0, 100)) and on() (sum(increase(http_requests_total{job=\"service-c-order\",route=\"/orders/checkout\",method=\"POST\",status=~\"2..|5..\",job=~\"${service:regex}\"}[30d])) > 0)",
+          "legendFormat": "Availability",
+          "instant": true,
+          "range": false
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Latency SLI (p95) · lab SLO ≤ 2.5 s",
+      "type": "gauge",
+      "gridPos": {
+        "x": 6,
+        "y": 1,
+        "w": 6,
+        "h": 6
+      },
+      "description": "95th percentile of checkout response times over 5 minutes, all HTTP statuses. Amber starts at 1.5 s. The 2.5 s objective is a lab threshold.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 2,
+          "noValue": "No data",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "green"
+              },
+              {
+                "value": 1.5,
+                "color": "orange"
+              },
+              {
+                "value": 2.500000001,
+                "color": "red"
+              }
+            ]
+          },
+          "min": 0,
+          "max": 5
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": false
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "(histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{job=\"service-c-order\",route=\"/orders/checkout\",method=\"POST\",job=~\"${service:regex}\"}[5m])))) and on() (sum(rate(http_request_duration_seconds_count{job=\"service-c-order\",route=\"/orders/checkout\",method=\"POST\",job=~\"${service:regex}\"}[5m])) > 0)",
+          "legendFormat": "p95",
+          "instant": true,
+          "range": false
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Error budget remaining · 30 days",
+      "type": "stat",
+      "gridPos": {
+        "x": 12,
+        "y": 1,
+        "w": 6,
+        "h": 6
+      },
+      "description": "Remaining share of the 0.1% error budget over the available 30-day window. Negative values indicate an overrun.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 2,
+          "noValue": "No data",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "red"
+              },
+              {
+                "value": 0,
+                "color": "orange"
+              },
+              {
+                "value": 25,
+                "color": "green"
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "100": {
+                  "text": "100%",
+                  "color": "green"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true,
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "(100 * (1 - ((sum(increase(http_requests_total{job=\"service-c-order\",route=\"/orders/checkout\",method=\"POST\",status=~\"5..\",job=~\"${service:regex}\"}[30d])) or on() (0 * sum(increase(http_requests_total{job=\"service-c-order\",route=\"/orders/checkout\",method=\"POST\",status=~\"2..|5..\",job=~\"${service:regex}\"}[30d])))) / sum(increase(http_requests_total{job=\"service-c-order\",route=\"/orders/checkout\",method=\"POST\",status=~\"2..|5..\",job=~\"${service:regex}\"}[30d]))) / 0.001)) and on() (sum(increase(http_requests_total{job=\"service-c-order\",route=\"/orders/checkout\",method=\"POST\",status=~\"2..|5..\",job=~\"${service:regex}\"}[30d])) > 0)",
+          "legendFormat": "Remaining budget",
+          "instant": true,
+          "range": false
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Eligible requests · up to 30 days",
+      "type": "stat",
+      "gridPos": {
+        "x": 18,
+        "y": 1,
+        "w": 6,
+        "h": 6
+      },
+      "description": "Estimated count of 2xx and 5xx checkout responses observed within the last 30 days.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 2,
+          "noValue": "—"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true,
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum(increase(http_requests_total{job=\"service-c-order\",route=\"/orders/checkout\",method=\"POST\",status=~\"2..|5..\",job=~\"${service:regex}\"}[30d]))",
+          "legendFormat": "2xx + 5xx",
+          "instant": true,
+          "range": false
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "title": "Prometheus scrape status",
+      "type": "stat",
+      "gridPos": {
+        "x": 0,
+        "y": 7,
+        "w": 8,
+        "h": 5
+      },
+      "description": "Current Prometheus scrape result for each selected service.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "noValue": "—",
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "DOWN",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "UP",
+                  "color": "green"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true,
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "up{job=~\"service-a-auth|service-c-order\",job=~\"${service:regex}\"}",
+          "legendFormat": "{{job}}",
+          "instant": true,
+          "range": false
+        }
+      ]
+    },
+    {
+      "id": 47,
+      "type": "stat",
+      "title": "Server errors (5xx) · last 5 min",
+      "gridPos": {
+        "x": 8,
+        "y": 7,
+        "w": 8,
+        "h": 5
+      },
+      "description": "Estimated count of completed 5xx responses in the last 5 minutes. Amber above zero and red at five, as lab severity thresholds.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (job) (increase(http_requests_total{job=~\"service-a-auth|service-c-order\",route!~\"/healthz|/metrics\",status=~\"5..\",job=~\"${service:regex}\"}[5m])) or on(job) (0 * sum by (job) (increase(http_requests_total{job=~\"service-a-auth|service-c-order\",route!~\"/healthz|/metrics\",job=~\"${service:regex}\"}[5m])))",
+          "legendFormat": "{{job}}",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 2,
+          "noValue": "No data",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "green"
+              },
+              {
+                "value": 1e-06,
+                "color": "orange"
+              },
+              {
+                "value": 5,
+                "color": "red"
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 48,
+      "type": "stat",
+      "title": "Checkout requests · last 5 min",
+      "gridPos": {
+        "x": 16,
+        "y": 7,
+        "w": 8,
+        "h": 5
+      },
+      "description": "Estimated count of checkout responses across all HTTP statuses in the last 5 minutes.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(increase(http_requests_total{job=\"service-c-order\",method=\"POST\",route=\"/orders/checkout\",job=~\"${service:regex}\"}[5m]))",
+          "legendFormat": "Requests",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 2,
+          "noValue": "No data"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 6,
+      "title": "Checkout throughput by HTTP status",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 12,
+        "h": 8
+      },
+      "description": "201 confirmed; 402 payment declined; 409 inventory conflict; 5xx server failures.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "decimals": 2,
+          "noValue": "—"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum by (status) (rate(http_requests_total{job=\"service-c-order\",route=\"/orders/checkout\",method=\"POST\",job=~\"${service:regex}\"}[$__rate_interval]))",
+          "legendFormat": "HTTP {{status}}",
+          "instant": false,
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Error budget burn rate",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 12,
+        "w": 12,
+        "h": 8
+      },
+      "description": "5-minute and 30-minute error ratios divided by the 0.1% budget. At 1×, the budget is consumed at the pace implied by the SLO.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 2,
+          "noValue": "—"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "((sum(increase(http_requests_total{job=\"service-c-order\",route=\"/orders/checkout\",method=\"POST\",status=~\"5..\",job=~\"${service:regex}\"}[5m])) or on() (0 * sum(increase(http_requests_total{job=\"service-c-order\",route=\"/orders/checkout\",method=\"POST\",status=~\"2..|5..\",job=~\"${service:regex}\"}[5m])))) / sum(increase(http_requests_total{job=\"service-c-order\",route=\"/orders/checkout\",method=\"POST\",status=~\"2..|5..\",job=~\"${service:regex}\"}[5m]))) / 0.001",
+          "legendFormat": "5 min",
+          "instant": false,
+          "range": true
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "((sum(increase(http_requests_total{job=\"service-c-order\",route=\"/orders/checkout\",method=\"POST\",status=~\"5..\",job=~\"${service:regex}\"}[30m])) or on() (0 * sum(increase(http_requests_total{job=\"service-c-order\",route=\"/orders/checkout\",method=\"POST\",status=~\"2..|5..\",job=~\"${service:regex}\"}[30m])))) / sum(increase(http_requests_total{job=\"service-c-order\",route=\"/orders/checkout\",method=\"POST\",status=~\"2..|5..\",job=~\"${service:regex}\"}[30m]))) / 0.001",
+          "legendFormat": "30 min",
+          "instant": false,
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "RED · Rate, Errors, Duration",
+      "type": "row",
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 9,
+      "title": "A Auth · Rate (requests/s)",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 21,
+        "w": 8,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "decimals": 2,
+          "noValue": "—"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(http_requests_total{job=\"service-a-auth\",route!~\"/healthz|/metrics\",job=~\"${service:regex}\"}[$__rate_interval]))",
+          "legendFormat": "A Auth",
+          "instant": false,
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "title": "A Auth · Errors (HTTP 5xx)",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 8,
+        "y": 21,
+        "w": 8,
+        "h": 8
+      },
+      "description": "Share of measured HTTP requests that returned 5xx. Probe and metrics endpoints are excluded.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 2,
+          "noValue": "—"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "100 * (sum(rate(http_requests_total{job=\"service-a-auth\",route!~\"/healthz|/metrics\",status=~\"5..\",job=~\"${service:regex}\"}[$__rate_interval])) or on() (0 * sum(rate(http_requests_total{job=\"service-a-auth\",route!~\"/healthz|/metrics\",job=~\"${service:regex}\"}[$__rate_interval])))) / sum(rate(http_requests_total{job=\"service-a-auth\",route!~\"/healthz|/metrics\",job=~\"${service:regex}\"}[$__rate_interval]))",
+          "legendFormat": "HTTP 5xx",
+          "instant": false,
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "title": "A Auth · Duration (p95)",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 16,
+        "y": 21,
+        "w": 8,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 2,
+          "noValue": "—"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{job=\"service-a-auth\",route!~\"/healthz|/metrics\",job=~\"${service:regex}\"}[$__rate_interval])))",
+          "legendFormat": "A Auth",
+          "instant": false,
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "title": "C Order · Rate (requests/s)",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 29,
+        "w": 8,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "decimals": 2,
+          "noValue": "—"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(http_requests_total{job=\"service-c-order\",route!~\"/healthz|/metrics\",job=~\"${service:regex}\"}[$__rate_interval]))",
+          "legendFormat": "C Order",
+          "instant": false,
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "title": "C Order · Errors (HTTP 5xx)",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 8,
+        "y": 29,
+        "w": 8,
+        "h": 8
+      },
+      "description": "Share of measured HTTP requests that returned 5xx. Probe and metrics endpoints are excluded.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 2,
+          "noValue": "—"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "100 * (sum(rate(http_requests_total{job=\"service-c-order\",route!~\"/healthz|/metrics\",status=~\"5..\",job=~\"${service:regex}\"}[$__rate_interval])) or on() (0 * sum(rate(http_requests_total{job=\"service-c-order\",route!~\"/healthz|/metrics\",job=~\"${service:regex}\"}[$__rate_interval])))) / sum(rate(http_requests_total{job=\"service-c-order\",route!~\"/healthz|/metrics\",job=~\"${service:regex}\"}[$__rate_interval]))",
+          "legendFormat": "HTTP 5xx",
+          "instant": false,
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "title": "C Order · Duration (p95)",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 16,
+        "y": 29,
+        "w": 8,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 2,
+          "noValue": "—"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{job=\"service-c-order\",route!~\"/healthz|/metrics\",job=~\"${service:regex}\"}[$__rate_interval])))",
+          "legendFormat": "C Order",
+          "instant": false,
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "title": "HTTP 4xx and 5xx by service and route",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 37,
+        "w": 24,
+        "h": 8
+      },
+      "description": "5xx indicate server failures. 4xx include rejected credentials or tokens and expected payment and inventory outcomes.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "decimals": 2,
+          "noValue": "—"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum by (job, route, status) (rate(http_requests_total{job=~\"service-a-auth|service-c-order\",route!~\"/healthz|/metrics\",status=~\"[45]..\",job=~\"${service:regex}\"}[$__rate_interval]))",
+          "legendFormat": "{{job}} {{route}} HTTP {{status}}",
+          "instant": false,
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 38,
+      "title": "RED details · authentication, routes and percentiles",
+      "type": "row",
+      "gridPos": {
+        "x": 0,
+        "y": 45,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": true,
+      "panels": [
+        {
+          "id": 39,
+          "title": "Authentication throughput by endpoint and status",
+          "type": "timeseries",
+          "gridPos": {
+            "x": 0,
+            "y": 46,
+            "w": 12,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "options": {
+            "legend": {
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum by (route, status) (rate(http_requests_total{job=\"service-a-auth\",route=~\"/auth/login|/auth/verify\",job=~\"${service:regex}\"}[$__rate_interval]))",
+              "legendFormat": "{{route}} · HTTP {{status}}",
+              "instant": false,
+              "range": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "min": 0,
+              "decimals": 2,
+              "noValue": "—"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 40,
+          "title": "Authentication success and rejection rates",
+          "type": "timeseries",
+          "gridPos": {
+            "x": 12,
+            "y": 46,
+            "w": 12,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "description": "2xx successes and 401 rejections as percentages of each authentication endpoint's traffic.",
+          "options": {
+            "legend": {
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "100 * ((sum by (route) (rate(http_requests_total{job=\"service-a-auth\",route=~\"/auth/login|/auth/verify\",status=~\"2..\",job=~\"${service:regex}\"}[$__rate_interval])) or on(route) (0 * sum by (route) (rate(http_requests_total{job=\"service-a-auth\",route=~\"/auth/login|/auth/verify\",job=~\"${service:regex}\"}[$__rate_interval])))) / sum by (route) (rate(http_requests_total{job=\"service-a-auth\",route=~\"/auth/login|/auth/verify\",job=~\"${service:regex}\"}[$__rate_interval])))",
+              "legendFormat": "{{route}} · Success",
+              "instant": false,
+              "range": true
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "100 * ((sum by (route) (rate(http_requests_total{job=\"service-a-auth\",route=~\"/auth/login|/auth/verify\",status=\"401\",job=~\"${service:regex}\"}[$__rate_interval])) or on(route) (0 * sum by (route) (rate(http_requests_total{job=\"service-a-auth\",route=~\"/auth/login|/auth/verify\",job=~\"${service:regex}\"}[$__rate_interval])))) / sum by (route) (rate(http_requests_total{job=\"service-a-auth\",route=~\"/auth/login|/auth/verify\",job=~\"${service:regex}\"}[$__rate_interval])))",
+              "legendFormat": "{{route}} · Rejected 401",
+              "instant": false,
+              "range": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "min": 0,
+              "decimals": 2,
+              "noValue": "—"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 30,
+          "title": "Throughput by method and route",
+          "type": "timeseries",
+          "gridPos": {
+            "x": 0,
+            "y": 54,
+            "w": 12,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "options": {
+            "legend": {
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum by (job, method, route) (rate(http_requests_total{job=~\"service-a-auth|service-c-order\",route!~\"/healthz|/metrics\",job=~\"${service:regex}\"}[$__rate_interval]))",
+              "legendFormat": "{{job}} · {{method}} {{route}}",
+              "instant": false,
+              "range": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "min": 0,
+              "decimals": 2,
+              "noValue": "—"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 31,
+          "title": "Throughput by status class",
+          "type": "timeseries",
+          "gridPos": {
+            "x": 12,
+            "y": 54,
+            "w": 12,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "options": {
+            "legend": {
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum by (job) (rate(http_requests_total{job=~\"service-a-auth|service-c-order\",route!~\"/healthz|/metrics\",status=~\"2..\",job=~\"${service:regex}\"}[$__rate_interval]))",
+              "legendFormat": "{{job}} · 2xx",
+              "instant": false,
+              "range": true
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum by (job) (rate(http_requests_total{job=~\"service-a-auth|service-c-order\",route!~\"/healthz|/metrics\",status=~\"4..\",job=~\"${service:regex}\"}[$__rate_interval]))",
+              "legendFormat": "{{job}} · 4xx",
+              "instant": false,
+              "range": true
+            },
+            {
+              "refId": "C",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum by (job) (rate(http_requests_total{job=~\"service-a-auth|service-c-order\",route!~\"/healthz|/metrics\",status=~\"5..\",job=~\"${service:regex}\"}[$__rate_interval]))",
+              "legendFormat": "{{job}} · 5xx",
+              "instant": false,
+              "range": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "min": 0,
+              "decimals": 2,
+              "noValue": "—"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 32,
+          "title": "A Auth · mean latency and percentiles",
+          "type": "timeseries",
+          "gridPos": {
+            "x": 0,
+            "y": 62,
+            "w": 12,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "options": {
+            "legend": {
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum(rate(http_request_duration_seconds_sum{job=\"service-a-auth\",route!~\"/healthz|/metrics\",job=~\"${service:regex}\"}[$__rate_interval])) / sum(rate(http_request_duration_seconds_count{job=\"service-a-auth\",route!~\"/healthz|/metrics\",job=~\"${service:regex}\"}[$__rate_interval]))",
+              "legendFormat": "Mean",
+              "instant": false,
+              "range": true
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "histogram_quantile(0.5, sum by (le) (rate(http_request_duration_seconds_bucket{job=\"service-a-auth\",route!~\"/healthz|/metrics\",job=~\"${service:regex}\"}[$__rate_interval])))",
+              "legendFormat": "p50",
+              "instant": false,
+              "range": true
+            },
+            {
+              "refId": "C",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "histogram_quantile(0.9, sum by (le) (rate(http_request_duration_seconds_bucket{job=\"service-a-auth\",route!~\"/healthz|/metrics\",job=~\"${service:regex}\"}[$__rate_interval])))",
+              "legendFormat": "p90",
+              "instant": false,
+              "range": true
+            },
+            {
+              "refId": "D",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{job=\"service-a-auth\",route!~\"/healthz|/metrics\",job=~\"${service:regex}\"}[$__rate_interval])))",
+              "legendFormat": "p95",
+              "instant": false,
+              "range": true
+            },
+            {
+              "refId": "E",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket{job=\"service-a-auth\",route!~\"/healthz|/metrics\",job=~\"${service:regex}\"}[$__rate_interval])))",
+              "legendFormat": "p99",
+              "instant": false,
+              "range": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "min": 0,
+              "decimals": 2,
+              "noValue": "—"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 33,
+          "title": "C Order · mean latency and percentiles",
+          "type": "timeseries",
+          "gridPos": {
+            "x": 12,
+            "y": 62,
+            "w": 12,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "options": {
+            "legend": {
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum(rate(http_request_duration_seconds_sum{job=\"service-c-order\",route!~\"/healthz|/metrics\",job=~\"${service:regex}\"}[$__rate_interval])) / sum(rate(http_request_duration_seconds_count{job=\"service-c-order\",route!~\"/healthz|/metrics\",job=~\"${service:regex}\"}[$__rate_interval]))",
+              "legendFormat": "Mean",
+              "instant": false,
+              "range": true
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "histogram_quantile(0.5, sum by (le) (rate(http_request_duration_seconds_bucket{job=\"service-c-order\",route!~\"/healthz|/metrics\",job=~\"${service:regex}\"}[$__rate_interval])))",
+              "legendFormat": "p50",
+              "instant": false,
+              "range": true
+            },
+            {
+              "refId": "C",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "histogram_quantile(0.9, sum by (le) (rate(http_request_duration_seconds_bucket{job=\"service-c-order\",route!~\"/healthz|/metrics\",job=~\"${service:regex}\"}[$__rate_interval])))",
+              "legendFormat": "p90",
+              "instant": false,
+              "range": true
+            },
+            {
+              "refId": "D",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{job=\"service-c-order\",route!~\"/healthz|/metrics\",job=~\"${service:regex}\"}[$__rate_interval])))",
+              "legendFormat": "p95",
+              "instant": false,
+              "range": true
+            },
+            {
+              "refId": "E",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket{job=\"service-c-order\",route!~\"/healthz|/metrics\",job=~\"${service:regex}\"}[$__rate_interval])))",
+              "legendFormat": "p99",
+              "instant": false,
+              "range": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "min": 0,
+              "decimals": 2,
+              "noValue": "—"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 34,
+          "title": "Mean latency by route",
+          "type": "timeseries",
+          "gridPos": {
+            "x": 0,
+            "y": 70,
+            "w": 12,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "options": {
+            "legend": {
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum by (job, route) (rate(http_request_duration_seconds_sum{job=~\"service-a-auth|service-c-order\",route!~\"/healthz|/metrics\",job=~\"${service:regex}\"}[$__rate_interval])) / sum by (job, route) (rate(http_request_duration_seconds_count{job=~\"service-a-auth|service-c-order\",route!~\"/healthz|/metrics\",job=~\"${service:regex}\"}[$__rate_interval]))",
+              "legendFormat": "{{job}} · {{route}}",
+              "instant": false,
+              "range": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "min": 0,
+              "decimals": 2,
+              "noValue": "—"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 35,
+          "title": "p95 latency by route",
+          "type": "timeseries",
+          "gridPos": {
+            "x": 12,
+            "y": 70,
+            "w": 12,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "options": {
+            "legend": {
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "histogram_quantile(0.95, sum by (job, route, le) (rate(http_request_duration_seconds_bucket{job=~\"service-a-auth|service-c-order\",route!~\"/healthz|/metrics\",job=~\"${service:regex}\"}[$__rate_interval])))",
+              "legendFormat": "{{job}} · {{route}}",
+              "instant": false,
+              "range": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "min": 0,
+              "decimals": 2,
+              "noValue": "—"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 36,
+          "title": "Estimated concurrent requests",
+          "type": "timeseries",
+          "gridPos": {
+            "x": 0,
+            "y": 78,
+            "w": 12,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "description": "Estimated mean in-flight requests from elapsed time per second, most meaningful during steady traffic.",
+          "options": {
+            "legend": {
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum by (job) (rate(http_request_duration_seconds_sum{job=~\"service-a-auth|service-c-order\",route!~\"/healthz|/metrics\",job=~\"${service:regex}\"}[$__rate_interval]))",
+              "legendFormat": "{{job}}",
+              "instant": false,
+              "range": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "min": 0,
+              "decimals": 2,
+              "noValue": "—"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 37,
+          "title": "Request volume by service",
+          "type": "stat",
+          "gridPos": {
+            "x": 12,
+            "y": 78,
+            "w": 12,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "description": "Estimated completed requests over the selected time range.",
+          "options": {
+            "graphMode": "none",
+            "textMode": "value_and_name",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum by (job) (increase(http_requests_total{job=~\"service-a-auth|service-c-order\",route!~\"/healthz|/metrics\",job=~\"${service:regex}\"}[$__range]))",
+              "legendFormat": "{{job}}",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "min": 0,
+              "decimals": 2,
+              "noValue": "—"
+            },
+            "overrides": []
+          }
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "title": "Checkout and scrape details",
+      "type": "row",
+      "gridPos": {
+        "x": 0,
+        "y": 46,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": true,
+      "panels": [
+        {
+          "id": 26,
+          "title": "Checkout volume by HTTP status",
+          "type": "stat",
+          "gridPos": {
+            "x": 0,
+            "y": 47,
+            "w": 12,
+            "h": 6
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "description": "Estimated number of checkout responses by status over the selected time range.",
+          "options": {
+            "graphMode": "none",
+            "textMode": "value_and_name",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum by (status) (increase(http_requests_total{job=\"service-c-order\",method=\"POST\",route=\"/orders/checkout\",job=~\"${service:regex}\"}[$__range]))",
+              "legendFormat": "HTTP {{status}}",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "min": 0,
+              "decimals": 2,
+              "noValue": "—"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 27,
+          "title": "Confirmed checkouts within 2.5 s",
+          "type": "stat",
+          "gridPos": {
+            "x": 12,
+            "y": 47,
+            "w": 12,
+            "h": 6
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "description": "Share of HTTP 201 checkouts completed within 2.5 s over the last 5 minutes.",
+          "options": {
+            "graphMode": "none",
+            "textMode": "value_and_name",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "100 * ((sum(rate(http_request_duration_seconds_bucket{job=\"service-c-order\",method=\"POST\",route=\"/orders/checkout\",status=\"201\",le=\"2.5\",job=~\"${service:regex}\"}[5m])) or on() (0 * sum(rate(http_request_duration_seconds_count{job=\"service-c-order\",method=\"POST\",route=\"/orders/checkout\",status=\"201\",job=~\"${service:regex}\"}[5m])))) / sum(rate(http_request_duration_seconds_count{job=\"service-c-order\",method=\"POST\",route=\"/orders/checkout\",status=\"201\",job=~\"${service:regex}\"}[5m])))",
+              "legendFormat": "Checkout 201",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "min": 0,
+              "decimals": 2,
+              "noValue": "—"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 28,
+          "title": "Checkout p95 by HTTP status",
+          "type": "timeseries",
+          "gridPos": {
+            "x": 0,
+            "y": 53,
+            "w": 12,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "description": "95th-percentile checkout response time grouped by final HTTP status.",
+          "options": {
+            "legend": {
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "histogram_quantile(0.95, sum by (status, le) (rate(http_request_duration_seconds_bucket{job=\"service-c-order\",method=\"POST\",route=\"/orders/checkout\",job=~\"${service:regex}\"}[$__rate_interval])))",
+              "legendFormat": "HTTP {{status}}",
+              "instant": false,
+              "range": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "min": 0,
+              "decimals": 2,
+              "noValue": "—"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 29,
+          "title": "Checkout outcome rates",
+          "type": "timeseries",
+          "gridPos": {
+            "x": 12,
+            "y": 53,
+            "w": 12,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "description": "Share of observed checkout requests corresponding to each business outcome.",
+          "options": {
+            "legend": {
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "100 * ((sum(rate(http_requests_total{job=\"service-c-order\",method=\"POST\",route=\"/orders/checkout\",status=\"201\",job=~\"${service:regex}\"}[$__rate_interval])) or on() (0 * sum(rate(http_requests_total{job=\"service-c-order\",method=\"POST\",route=\"/orders/checkout\",job=~\"${service:regex}\"}[$__rate_interval])))) / sum(rate(http_requests_total{job=\"service-c-order\",method=\"POST\",route=\"/orders/checkout\",job=~\"${service:regex}\"}[$__rate_interval])))",
+              "legendFormat": "Confirmed 201",
+              "instant": false,
+              "range": true
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "100 * ((sum(rate(http_requests_total{job=\"service-c-order\",method=\"POST\",route=\"/orders/checkout\",status=\"402\",job=~\"${service:regex}\"}[$__rate_interval])) or on() (0 * sum(rate(http_requests_total{job=\"service-c-order\",method=\"POST\",route=\"/orders/checkout\",job=~\"${service:regex}\"}[$__rate_interval])))) / sum(rate(http_requests_total{job=\"service-c-order\",method=\"POST\",route=\"/orders/checkout\",job=~\"${service:regex}\"}[$__rate_interval])))",
+              "legendFormat": "Payment declined 402",
+              "instant": false,
+              "range": true
+            },
+            {
+              "refId": "C",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "100 * ((sum(rate(http_requests_total{job=\"service-c-order\",method=\"POST\",route=\"/orders/checkout\",status=\"409\",job=~\"${service:regex}\"}[$__rate_interval])) or on() (0 * sum(rate(http_requests_total{job=\"service-c-order\",method=\"POST\",route=\"/orders/checkout\",job=~\"${service:regex}\"}[$__rate_interval])))) / sum(rate(http_requests_total{job=\"service-c-order\",method=\"POST\",route=\"/orders/checkout\",job=~\"${service:regex}\"}[$__rate_interval])))",
+              "legendFormat": "Inventory conflict 409",
+              "instant": false,
+              "range": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "min": 0,
+              "decimals": 2,
+              "noValue": "—"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 41,
+          "title": "Successful scrapes over the selected range",
+          "type": "stat",
+          "gridPos": {
+            "x": 12,
+            "y": 61,
+            "w": 12,
+            "h": 5
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "description": "Percentage of Prometheus scrapes that succeeded in the selected time range.",
+          "options": {
+            "graphMode": "none",
+            "textMode": "value_and_name",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "100 * avg_over_time(up{job=~\"service-a-auth|service-c-order\",job=~\"${service:regex}\"}[$__range])",
+              "legendFormat": "{{job}}",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "min": 0,
+              "decimals": 2,
+              "noValue": "—"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 42,
+          "title": "Prometheus scrape duration",
+          "type": "timeseries",
+          "gridPos": {
+            "x": 0,
+            "y": 66,
+            "w": 12,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "options": {
+            "legend": {
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "scrape_duration_seconds{job=~\"service-a-auth|service-c-order\",job=~\"${service:regex}\"}",
+              "legendFormat": "{{job}}",
+              "instant": false,
+              "range": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "min": 0,
+              "decimals": 2,
+              "noValue": "—"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 43,
+          "title": "Scraped samples and new series",
+          "type": "timeseries",
+          "gridPos": {
+            "x": 12,
+            "y": 66,
+            "w": 12,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "description": "Number of samples scraped and number of new time series added at each scrape.",
+          "options": {
+            "legend": {
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "scrape_samples_scraped{job=~\"service-a-auth|service-c-order\",job=~\"${service:regex}\"}",
+              "legendFormat": "{{job}} · samples",
+              "instant": false,
+              "range": true
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "scrape_series_added{job=~\"service-a-auth|service-c-order\",job=~\"${service:regex}\"}",
+              "legendFormat": "{{job}} · new series",
+              "instant": false,
+              "range": true
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "min": 0,
+              "decimals": 2,
+              "noValue": "—"
+            },
+            "overrides": []
+          }
+        }
+      ]
+    },
+    {
+      "id": 21,
+      "title": "Logs & traces",
+      "type": "row",
+      "gridPos": {
+        "x": 0,
+        "y": 47,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 46,
+      "title": "Recent checkout traces",
+      "description": "Up to 20 recent service C checkout traces, with direct Jaeger links.",
+      "type": "table",
+      "gridPos": {
+        "x": 0,
+        "y": 48,
+        "w": 24,
+        "h": 9
+      },
+      "datasource": {
+        "type": "jaeger",
+        "uid": "jaeger"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "jaeger",
+            "uid": "jaeger"
+          },
+          "queryType": "search",
+          "service": "service-c-order",
+          "operation": "POST /orders/checkout",
+          "limit": 20
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "^(traceID|Trace ID)$"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Open waterfall in Jaeger",
+                    "url": "http://localhost:16686/trace/${__value.raw}",
+                    "targetBlank": true
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "footer": {
+          "show": false
+        }
+      }
+    },
+    {
+      "id": 22,
+      "title": "A Auth · structured logs",
+      "type": "logs",
+      "gridPos": {
+        "x": 0,
+        "y": 57,
+        "w": 12,
+        "h": 12
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "description": "A Auth application logs from Loki.",
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "wrapLogMessage": true,
+        "enableLogDetails": true,
+        "sortOrder": "Descending",
+        "dedupStrategy": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "editorMode": "code",
+          "queryType": "range",
+          "expr": "{job=\"cloudstore\",service=\"service-a-auth\",service=~\"${service:regex}\",level=~\"${log_level:regex}\"}",
+          "maxLines": 150
+        }
+      ]
+    },
+    {
+      "id": 23,
+      "title": "C Order · structured logs",
+      "type": "logs",
+      "gridPos": {
+        "x": 12,
+        "y": 57,
+        "w": 12,
+        "h": 12
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "description": "C Order application logs from Loki.",
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "wrapLogMessage": true,
+        "enableLogDetails": true,
+        "sortOrder": "Descending",
+        "dedupStrategy": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "editorMode": "code",
+          "queryType": "range",
+          "expr": "{job=\"cloudstore\",service=\"service-c-order\",service=~\"${service:regex}\",level=~\"${log_level:regex}\"}",
+          "maxLines": 150
+        }
+      ]
+    },
+    {
+      "id": 44,
+      "title": "Warning and error log rate",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 69,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "description": "Warning and error lines per second, grouped by service and level.",
+      "options": {
+        "legend": {
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "editorMode": "code",
+          "expr": "sum by (service, level) (rate({job=\"cloudstore\",service=~\"service-a-auth|service-c-order\",service=~\"${service:regex}\",level=~\"warn|error\"}[2m]))",
+          "legendFormat": "{{service}} · {{level}}",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "decimals": 2,
+          "noValue": "—"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 45,
+      "title": "Warning and error logs by event",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 69,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "description": "Lines per five minutes, grouped by service and structured event.",
+      "options": {
+        "legend": {
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "editorMode": "code",
+          "expr": "sum by (service, event) (count_over_time({job=\"cloudstore\",service=~\"service-a-auth|service-c-order\",service=~\"${service:regex}\"} | json | __error__=\"\" | level=~\"warn|error\" | event!=\"\" [5m]))",
+          "legendFormat": "{{service}} · {{event}}",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "decimals": 2,
+          "noValue": "—"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 24,
+      "title": "Jaeger waterfall · selected trace",
+      "type": "row",
+      "gridPos": {
+        "x": 0,
+        "y": 77,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": true,
+      "panels": [
+        {
+          "id": 25,
+          "title": "Trace waterfall",
+          "type": "traces",
+          "gridPos": {
+            "x": 0,
+            "y": 78,
+            "w": 24,
+            "h": 13
+          },
+          "datasource": {
+            "type": "jaeger",
+            "uid": "jaeger"
+          },
+          "description": "Jaeger spans for the selected Trace ID.",
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "jaeger",
+                "uid": "jaeger"
+              },
+              "query": "$trace_id"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 50,
+      "type": "row",
+      "title": "USE · Utilization, Saturation, Errors",
+      "gridPos": {
+        "x": 0,
+        "y": 78,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 52,
+      "title": "U · CPU usage (cores)",
+      "description": "CPU cores consumed. 1.0 represents one fully used logical CPU.",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 79,
+        "w": 8,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "rate(otel_container_cpu_usage_nanoseconds_total{job=\"otel-collector\",service=~\"${service:regex}\"}[$__rate_interval]) / 1e9",
+          "legendFormat": "{{service}}",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 2,
+          "min": 0,
+          "noValue": "No data"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 53,
+      "title": "U · Memory working set",
+      "description": "Container memory excluding inactive file cache, as reported by Docker Stats.",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 79,
+        "w": 8,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "otel_container_memory_usage_total_bytes{job=\"otel-collector\",service=~\"${service:regex}\"}",
+          "legendFormat": "{{service}}",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "decimals": 2,
+          "min": 0,
+          "noValue": "No data"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 54,
+      "title": "U · Memory utilization",
+      "description": "Percent of the effective limit reported by Docker. The limit may be the Docker VM's memory when no container cap is configured.",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 79,
+        "w": 8,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "100 * otel_container_memory_usage_total_bytes{job=\"otel-collector\",service=~\"${service:regex}\"} / (otel_container_memory_usage_limit_bytes{job=\"otel-collector\",service=~\"${service:regex}\"} > 0)",
+          "legendFormat": "{{service}}",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 2,
+          "min": 0,
+          "noValue": "No data",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "green"
+              },
+              {
+                "value": 80,
+                "color": "orange"
+              },
+              {
+                "value": 95,
+                "color": "red"
+              }
+            ]
+          },
+          "custom": {
+            "thresholdsStyle": {
+              "mode": "line"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 55,
+      "title": "S · CPU throttling (s/s)",
+      "description": "Aggregate CPU throttling time, in seconds per second. A rise indicates enforced CPU limits. The aggregate can exceed 1.",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 86,
+        "w": 8,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "rate(otel_container_cpu_throttling_data_throttled_time_nanoseconds_total{job=\"otel-collector\",service=~\"${service:regex}\"}[$__rate_interval]) / 1e9",
+          "legendFormat": "{{service}}",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 2,
+          "min": 0,
+          "noValue": "No data"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 56,
+      "title": "S · Major memory page faults/s",
+      "description": "Major page faults per second. A rise can be a sign of memory pressure or file-backed I/O.",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 86,
+        "w": 8,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "rate(otel_container_memory_pgmajfault_total{job=\"otel-collector\",service=~\"${service:regex}\"}[$__rate_interval])",
+          "legendFormat": "{{service}}",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 2,
+          "min": 0,
+          "noValue": "No data"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 57,
+      "title": "E · Container restarts",
+      "description": "Docker restart count for the current container lifetime.",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 86,
+        "w": 8,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "otel_container_restarts_total{job=\"otel-collector\",service=~\"${service:regex}\"}",
+          "legendFormat": "{{service}}",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 2,
+          "min": 0,
+          "noValue": "No data",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "green"
+              },
+              {
+                "value": 1,
+                "color": "red"
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    }
+  ],
+  "description": "CloudStore A/C · Checkout SLI/SLO, HTTP RED, Loki logs, Jaeger traces and Docker USE metrics."
+}
