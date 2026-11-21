@@ -93,8 +93,10 @@ services:
     container_name: cloudstore-otel-collector
     command: ["--config=/etc/otelcol-contrib/config.yaml"]
     volumes:
-      - ./observability/otel-collector/otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro
+      - ./observability/grafana/dashboards-ac/otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro
       - ${DOCKER_SOCK:-/var/run/docker.sock}:/var/run/docker.sock:ro
+    group_add:
+      - "1001"
     ports:
       - "4317:4317" # OTLP gRPC
       - "4318:4318" # OTLP HTTP
